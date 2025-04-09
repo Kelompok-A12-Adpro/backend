@@ -1,4 +1,5 @@
-#[macro_use] extern crate rocket;
+#[macro_use]
+extern crate rocket;
 
 #[get("/")]
 fn index() -> &'static str {
@@ -6,7 +7,7 @@ fn index() -> &'static str {
 }
 
 #[get("/<name>")]
-fn name(name: & str) -> String {
+fn name(name: &str) -> String {
     format!("Hello, {}!", name)
 }
 
