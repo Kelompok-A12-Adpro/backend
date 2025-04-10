@@ -1,12 +1,12 @@
-# NOTE: Change secrets and other in Github's Repository Secret when deploying to other ECS cluster of your AWS account yah.
-name: Deploy to AWS ECS (Production)
+name: Staging CI/CD
 env:
   CARGO_TERM_COLOR: always
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - staging
 
 permissions: read-all
 
@@ -63,6 +63,7 @@ jobs:
 
   # Scorecard analysis
   scorecard-analysis:
+    needs: sonarcloud-linter
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
@@ -118,6 +119,7 @@ jobs:
   
   # Codecov coverage report
   codecov:
+    needs: scorecard-analysis
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
@@ -136,34 +138,4 @@ jobs:
           files: lcov.info
           fail_ci_if_error: true
   
-  deploy:
-    needs: [sonarcloud-linter, scorecard-analysis, codecov]
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-        aws-region: us-east-1
-
-    - name: Build and push Docker image
-      run: |
-        docker build -t gatherlove-be .
-        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
-        docker tag gatherlove-be:latest ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
-        docker push ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
-
-    - name: Deploy to ECS
-      env:
-        ECS_CLUSTER: GatherLove
-        ECS_SERVICE: gatherlove-be
-      run: |
-        aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
-        aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
-        echo "Deployment to ECS completed successfully."
+  # TODO: Deployment ke Staging, needs jadi separate job
