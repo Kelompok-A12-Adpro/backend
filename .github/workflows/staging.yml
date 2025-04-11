@@ -63,7 +63,6 @@ jobs:
   
   # Codecov coverage report
   codecov:
-    needs: sonarcloud-linter
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
