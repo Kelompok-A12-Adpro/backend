@@ -2,6 +2,8 @@
 name: Deploy to AWS ECS (Production)
 env:
   CARGO_TERM_COLOR: always
+  ECS_CLUSTER: GatherLove
+  ECS_SERVICE: gatherlove-be
 
 on:
   workflow_dispatch:
@@ -160,10 +162,21 @@ jobs:
         docker push ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
 
     - name: Deploy to ECS
-      env:
-        ECS_CLUSTER: GatherLove
-        ECS_SERVICE: gatherlove-be
       run: |
         aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
         aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
         echo "Deployment to ECS completed successfully."
+    
+    - name: Get Public IP Address and Set to DuckDNS
+      run: |
+        TASK_ARN=$(aws ecs list-tasks --cluster ${{ env.ECS_CLUSTER }} --service-name ${{ env.ECS_SERVICE }} --query 'taskArns[0]' --output text)
+        TASK_DETAILS=$(aws ecs describe-tasks --cluster ${{ env.ECS_CLUSTER }} --tasks $TASK_ARN)
+        
+        PUBLIC_IP=$(echo $TASK_DETAILS | jq -r '.tasks[0].containers[0].networkInterfaces[0].privateIpv4Address')
+        
+        DUCKDNS_TOKEN=${{ secrets.DUCKDNS_TOKEN }}
+        DUCKDNS_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=gatherlove-be&token=$DUCKDNS_TOKEN&ip=$PUBLIC_IP&verbose=true")
+
+        echo "## DuckDNS Update Results" >> $GITHUB_STEP_SUMMARY
+        echo "* Public IP: $PUBLIC_IP" >> $GITHUB_STEP_SUMMARY
+        echo "* Response: $DUCKDNS_RESPONSE" >> $GITHUB_STEP_SUMMARY
