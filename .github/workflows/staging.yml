@@ -1,0 +1,123 @@
+name: Staging CI/CD
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - staging
+
+permissions: read-all
+
+jobs:
+  # TODO: Add a job to run the tests
+
+  # SonarCloud analysis and linter
+  sonarcloud-linter:
+    name: SonarCloud analysis + Linter
+    runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:develop-nightly
+      options: --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: rustup update stable
+
+      - name: Install Protobuf
+        run: |
+          apt-get update
+          apt-get install -y protobuf-compiler libprotobuf-dev
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install Clippy
+        run: rustup component add clippy
+
+      - name: Install cargo-sonar and run Clippy
+        run: |
+          cargo install cargo-sonar
+          cargo clippy --message-format json > my-clippy-report.json
+          cargo sonar --clippy --clippy-path my-clippy-report.json
+
+      - name: Build with coverage
+        run: |
+          RUSTFLAGS="-C instrument-coverage" cargo build
+
+      - name: Generate code coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.externalIssuesReportPaths=sonar-issues.json
+            -Dcommunity.rust.lcov.reportPaths=lcov.info
+  
+  # Codecov coverage report
+  codecov:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update stable
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+  
+  push-cr:
+    name: Push to GitHub CR
+    needs: [sonarcloud-linter, codecov]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: hyvos07
+          password: ${{ secrets.PUSH_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t ghcr.io/kelompok-a12-adpro/backend:latest .
+          docker push ghcr.io/kelompok-a12-adpro/backend:latest
+          echo "Docker image pushed to GitHub CR successfully."
+  
+  deploy-koyeb:
+    name: Redeploy on Koyeb
+    needs: [push-cr]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install and configure the Koyeb CLI
+        uses: koyeb-community/koyeb-actions@v2
+        with:
+          api_token: "${{ secrets.KOYEB_API_TOKEN }}"
+      
+      - name: Redeploy service on Koyeb
+        run: |
+          koyeb service redeploy gatherlove-be/gatherlove-be
+          echo "Koyeb service redeployment initiated successfully."

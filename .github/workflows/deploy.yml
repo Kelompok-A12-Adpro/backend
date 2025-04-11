@@ -1,12 +1,145 @@
-# NOTE: Change secrets and other  when deploying to other ECS cluster
-name: Deploy to AWS ECS
+# NOTE: Change secrets and other in Github's Repository Secret when deploying to other ECS cluster of your AWS account yah.
+name: Deploy to AWS ECS (Production)
+env:
+  CARGO_TERM_COLOR: always
+  ECS_CLUSTER: GatherLove
+  ECS_SERVICE: gatherlove-be
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
 
+permissions: read-all
+
 jobs:
+  # TODO: Add a job to run the tests
+
+  # SonarCloud analysis and linter
+  sonarcloud-linter:
+    name: SonarCloud analysis + Linter
+    runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:develop-nightly
+      options: --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: rustup update stable
+
+      - name: Install Protobuf
+        run: |
+          apt-get update
+          apt-get install -y protobuf-compiler libprotobuf-dev
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install Clippy
+        run: rustup component add clippy
+
+      - name: Install cargo-sonar and run Clippy
+        run: |
+          cargo install cargo-sonar
+          cargo clippy --message-format json > my-clippy-report.json
+          cargo sonar --clippy --clippy-path my-clippy-report.json
+
+      - name: Build with coverage
+        run: |
+          RUSTFLAGS="-C instrument-coverage" cargo build
+
+      - name: Generate code coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.externalIssuesReportPaths=sonar-issues.json
+            -Dcommunity.rust.lcov.reportPaths=lcov.info
+
+  # Scorecard analysis
+  scorecard-analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to upload the results to code-scanning dashboard.
+      security-events: write
+      # Needed to publish results and get a badge (see publish_results below).
+      id-token: write
+      # Uncomment the permissions below if installing in a private repository.
+      # contents: read
+      # actions: read
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          persist-credentials: false
+
+      - name: "Run analysis"
+        uses: ossf/scorecard-action@0864cf19026789058feabb7e87baa5f140aac736 # v2.3.1
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # (Optional) "write" PAT token. Uncomment the `repo_token` line below if:
+          # - you want to enable the Branch-Protection check on a *public* repository, or
+          # - you are installing Scorecard on a *private* repository
+          # To create the PAT, follow the steps in https://github.com/ossf/scorecard-action?tab=readme-ov-file#authentication-with-fine-grained-pat-optional.
+          # repo_token: ${{ secrets.SCORECARD_TOKEN }}
+
+          # Public repositories:
+          #   - Publish results to OpenSSF REST API for easy access by consumers
+          #   - Allows the repository to include the Scorecard badge.
+          #   - See https://github.com/ossf/scorecard-action#publishing-results.
+          # For private repositories:
+          #   - `publish_results` will always be set to `false`, regardless
+          #     of the value entered here.
+          publish_results: true
+
+      # Upload the results as artifacts (optional). Commenting out will disable uploads of run results in SARIF
+      # format to the repository Actions tab.
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      # Upload the results to GitHub's code scanning dashboard (optional).
+      # Commenting out will disable upload of results to your repo's Code Scanning dashboard
+      - name: "Upload to code-scanning"
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+  
+  # Codecov coverage report
+  codecov:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update stable
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+  
   deploy:
+    needs: [sonarcloud-linter, scorecard-analysis, codecov]
     runs-on: ubuntu-latest
 
     steps:
@@ -29,10 +162,22 @@ jobs:
         docker push ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
 
     - name: Deploy to ECS
-      env:
-        ECS_CLUSTER: GatherLove
-        ECS_SERVICE: gatherlove-be
       run: |
         aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
         aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
         echo "Deployment to ECS completed successfully."
+    
+    - name: Get Public IP Address and Set to DuckDNS
+      run: |
+        TASK_ARN=$(aws ecs list-tasks --cluster ${{ env.ECS_CLUSTER }} --service-name ${{ env.ECS_SERVICE }} --query 'taskArns[0]' --output text)
+        TASK_DETAILS=$(aws ecs describe-tasks --cluster ${{ env.ECS_CLUSTER }} --tasks $TASK_ARN)
+        ENI=$(echo $TASK_DETAILS | jq -r '.tasks[0].attachments[0].details[] | select(.name=="networkInterfaceId").value')
+
+        PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+        
+        DUCKDNS_TOKEN=${{ secrets.DUCKDNS_TOKEN }}
+        DUCKDNS_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=gatherlove-be&token=$DUCKDNS_TOKEN&ip=$PUBLIC_IP&verbose=true")
+
+        echo "## DuckDNS Update Results" >> $GITHUB_STEP_SUMMARY
+        echo "* Public IP: $PUBLIC_IP" >> $GITHUB_STEP_SUMMARY
+        echo "* Response: $DUCKDNS_RESPONSE" >> $GITHUB_STEP_SUMMARY
