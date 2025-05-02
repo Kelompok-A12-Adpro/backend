@@ -26,6 +26,28 @@ pub struct CreateNotificationRequest {
     pub target_id: Option<i32>,
 }
 
+pub fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
+    if req.title.is_empty() {
+        return Err("Title cannot be empty".to_string());
+    }
+    if req.content.is_empty() {
+        return Err("Content cannot be empty".to_string());
+    }
+    match req.target_type {
+        NotificationTargetType::SpecificUser => {
+            if req.target_id.is_none() {
+                return Err("target_id is required for SpecificUser".to_string());
+            }
+        }
+        NotificationTargetType::AllUsers | NotificationTargetType::Fundraisers => {
+            if req.target_id.is_some() {
+                return Err("target_id must be None for AllUsers or Fundraisers".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,23 +114,17 @@ mod tests {
         };
 
         let serialized = serde_json::to_string(&req).expect("Serialization failed");
-        // Need to add Serialize derive to CreateNotificationRequest for this test to pass
-        // let deserialized: CreateNotificationRequest = serde_json::from_str(&serialized).expect("Deserialization failed");
-        // assert_eq!(req.title, deserialized.title);
-        // assert_eq!(req.content, deserialized.content);
-        // assert_eq!(req.target_type, deserialized.target_type);
-        // assert_eq!(req.target_id, deserialized.target_id);
 
-        // For now, just assert serialization works
-        assert!(serialized.contains("Serialization Test"));
+        let deserialized: CreateNotificationRequest = serde_json::from_str(&serialized).expect("Deserialization failed");
+        assert_eq!(req.title, deserialized.title);
+        assert_eq!(req.content, deserialized.content);
+        assert_eq!(req.target_type, deserialized.target_type);
+        assert_eq!(req.target_id, deserialized.target_id);
     }
 
     // Test for validation logic (will fail initially in TDD)
     #[test]
     fn test_create_notification_request_validation() {
-        // This test assumes some validation logic exists or will be added.
-        // It will fail until such logic is implemented.
-
         // Valid: Specific user with ID
         let valid_specific = CreateNotificationRequest {
             title: "Valid Title".to_string(),
@@ -116,7 +132,7 @@ mod tests {
             target_type: NotificationTargetType::SpecificUser,
             target_id: Some(1),
         };
-        // assert!(validate_request(&valid_specific).is_ok()); // Placeholder for validation function
+        assert!(validate_request(&valid_specific).is_ok()); // Placeholder for validation function
 
         // Invalid: Specific user without ID
         let invalid_specific_no_id = CreateNotificationRequest {
@@ -125,7 +141,7 @@ mod tests {
             target_type: NotificationTargetType::SpecificUser,
             target_id: None,
         };
-        // assert!(validate_request(&invalid_specific_no_id).is_err()); // Placeholder
+        assert!(validate_request(&invalid_specific_no_id).is_err()); // Placeholder
 
         // Invalid: All users with ID
         let invalid_all_with_id = CreateNotificationRequest {
@@ -134,7 +150,7 @@ mod tests {
             target_type: NotificationTargetType::AllUsers,
             target_id: Some(1),
         };
-        // assert!(validate_request(&invalid_all_with_id).is_err()); // Placeholder
+        assert!(validate_request(&invalid_all_with_id).is_err()); // Placeholder
 
         // Invalid: Empty title
         let invalid_empty_title = CreateNotificationRequest {
@@ -143,7 +159,7 @@ mod tests {
             target_type: NotificationTargetType::AllUsers,
             target_id: None,
         };
-        // assert!(validate_request(&invalid_empty_title).is_err()); // Placeholder
+        assert!(validate_request(&invalid_empty_title).is_err()); // Placeholder
 
          // Invalid: Empty content
         let invalid_empty_content = CreateNotificationRequest {
@@ -152,29 +168,6 @@ mod tests {
             target_type: NotificationTargetType::AllUsers,
             target_id: None,
         };
-        // assert!(validate_request(&invalid_empty_content).is_err()); // Placeholder
+        assert!(validate_request(&invalid_empty_content).is_err()); // Placeholder
     }
-
-    // Placeholder for a potential validation function
-    // fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
-    //     if req.title.is_empty() {
-    //         return Err("Title cannot be empty".to_string());
-    //     }
-    //     if req.content.is_empty() {
-    //         return Err("Content cannot be empty".to_string());
-    //     }
-    //     match req.target_type {
-    //         NotificationTargetType::SpecificUser => {
-    //             if req.target_id.is_none() {
-    //                 return Err("target_id is required for SpecificUser".to_string());
-    //             }
-    //         }
-    //         NotificationTargetType::AllUsers | NotificationTargetType::Fundraisers => {
-    //             if req.target_id.is_some() {
-    //                 return Err("target_id must be None for AllUsers or Fundraisers".to_string());
-    //             }
-    //         }
-    //     }
-    //     Ok(())
-    // }
 }

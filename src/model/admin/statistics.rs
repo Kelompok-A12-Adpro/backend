@@ -78,10 +78,6 @@ mod tests {
         assert_eq!(stats.registered_users_count, cloned_stats.registered_users_count);
         assert_eq!(stats.daily_transaction_count, cloned_stats.daily_transaction_count);
         assert_eq!(stats.weekly_transaction_count, cloned_stats.weekly_transaction_count);
-
-        // Optionally, assert they are not the same memory location if needed,
-        // though derive(Clone) typically ensures a new allocation for owned types like String.
-        // For simple types like i32/f64, the values are copied.
     }
 
 
