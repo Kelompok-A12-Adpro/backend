@@ -2,15 +2,20 @@ use std::sync::{Arc, Mutex};
 use crate::errors::AppError;
 use crate::service::notification::notification_observer::NotificationObserver;
 use crate::model::admin::notification::{Notification, CreateNotificationRequest};
+use chrono::Utc;
 
 pub struct NotificationService {
     observers: Mutex<Vec<Box<dyn NotificationObserver>>>,
+    notifications: Mutex<Vec<Notification>>,
+    next_id: Mutex<i32>,
 }
 
 impl NotificationService {
     pub fn new() -> Self {
         NotificationService {
             observers: Mutex::new(Vec::new()),
+            notifications: Mutex::new(Vec::new()),
+            next_id: Mutex::new(1),
         }
     }
     
@@ -32,23 +37,42 @@ impl NotificationService {
     }
     
     pub async fn create_notification(&self, command: CreateNotificationRequest) -> Result<Notification, AppError> {
-        // Validate input
         if command.title.is_empty() || command.content.is_empty() {
             return Err(AppError::ValidationError("Title and content cannot be empty".to_string()));
         }
         
-        // Create notification logic would go here
-        unimplemented!()
+        let mut notifications = self.notifications.lock().unwrap();
+        let mut next_id = self.next_id.lock().unwrap();
+        
+        let new_notification = Notification {
+            id: *next_id,
+            title: command.title,
+            content: command.content,
+            created_at: Utc::now(),
+            target_type: command.target_type,
+            target_id: command.target_id,
+        };
+        
+        notifications.push(new_notification.clone());
+        *next_id += 1;
+        
+        drop(notifications);
+        drop(next_id);
+
+        self.notify_all(&new_notification);
+        
+        Ok(new_notification)
     }
     
     pub async fn delete_notification(&self, notification_id: i32) -> Result<(), AppError> {
-        // Delete notification logic would go here
-        unimplemented!()
+        let mut notifications = self.notifications.lock().unwrap();
+        notifications.retain(|n| n.id != notification_id);
+        Ok(())
     }
     
     pub async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError> {
-        // Get all notifications logic would go here
-        unimplemented!()
+        let notifications = self.notifications.lock().unwrap();
+        Ok(notifications.clone())
     }
 }
 
@@ -60,9 +84,8 @@ mod tests {
     use crate::errors::AppError;
     use chrono::Utc;
     use std::sync::{Arc, Mutex};
-    use tokio; // Ensure tokio is a dev-dependency
+    use tokio;
 
-    // Mock Observer for testing attach, detach, notify
     struct MockObserver {
         id: String,
         update_called: Arc<Mutex<bool>>,
@@ -87,7 +110,7 @@ mod tests {
             *self.last_notification_id.lock().unwrap() = None;
         }
 
-         fn get_last_notification_id(&self) -> Option<i32> {
+        fn get_last_notification_id(&self) -> Option<i32> {
             *self.last_notification_id.lock().unwrap()
         }
     }
@@ -132,7 +155,6 @@ mod tests {
         service.attach(Box::new(observer1));
         service.attach(Box::new(observer2));
 
-        // Detach observer1
         service.detach("obs1");
 
         let notification = Notification {
@@ -155,7 +177,6 @@ mod tests {
         let observer2_update_flag = observer2.update_called.clone();
         let observer1_last_id = observer1.last_notification_id.clone();
         let observer2_last_id = observer2.last_notification_id.clone();
-
 
         service.attach(Box::new(observer1));
         service.attach(Box::new(observer2));
