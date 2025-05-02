@@ -1,4 +1,4 @@
 pub mod commands;
-pub mod campaign_service;
+pub mod campaign;
 pub mod admin;
 pub mod notification;
