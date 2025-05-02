@@ -6,9 +6,7 @@ pub enum CampaignStatus {
     PendingVerification,
     Active,
     Rejected,
-    Suspended,
     Completed,
-    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
