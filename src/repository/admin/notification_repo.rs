@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use crate::errors::AppError;
 use crate::model::admin::notification::{Notification, NotificationTargetType, CreateNotificationRequest};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use chrono::Utc;
 
 #[async_trait]
 pub trait NotificationRepository: Send + Sync {
@@ -10,7 +13,56 @@ pub trait NotificationRepository: Send + Sync {
     async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError>;
 }
 
-// Implementation will be added later
+// In-memory implementation
+pub struct InMemoryNotificationRepository {
+    notifications: Arc<Mutex<HashMap<i32, Notification>>>,
+    next_id: Arc<Mutex<i32>>,
+}
+
+impl InMemoryNotificationRepository {
+    pub fn new() -> Self {
+        InMemoryNotificationRepository {
+            notifications: Arc::new(Mutex::new(HashMap::new())),
+            next_id: Arc::new(Mutex::new(1)),
+        }
+    }
+}
+
+#[async_trait]
+impl NotificationRepository for InMemoryNotificationRepository {
+    async fn create_notification(&self, request: &CreateNotificationRequest) -> Result<Notification, AppError> {
+        let mut notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
+        let mut next_id_guard = self.next_id.lock().map_err(|_| AppError::InternalServerError("Failed to lock next_id".to_string()))?;
+        let id = *next_id_guard;
+        *next_id_guard += 1;
+
+        let notification = Notification {
+            id,
+            title: request.title.clone(),
+            content: request.content.clone(),
+            created_at: Utc::now(),
+            target_type: request.target_type.clone(),
+            target_id: request.target_id,
+        };
+        notifications.insert(id, notification.clone());
+        Ok(notification)
+    }
+
+    async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError> {
+        let notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
+        Ok(notifications.values().cloned().collect())
+    }
+
+    async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError> {
+        let notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
+        Ok(notifications.get(&notification_id).cloned())
+    }
+
+    async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError> {
+        let mut notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
+        Ok(notifications.remove(&notification_id).is_some())
+    }
+}
 
 #[cfg(test)]
 mod tests {
