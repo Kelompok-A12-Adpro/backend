@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use crate::errors::AppError;
 use crate::service::notification::notification_observer::NotificationObserver;
-use crate::service::notification::models::{Notification, CreateNotificationCommand};
+use crate::model::admin::notification::{Notification, CreateNotificationRequest};
 
 pub struct NotificationService {
     observers: Mutex<Vec<Box<dyn NotificationObserver>>>,
@@ -31,7 +31,7 @@ impl NotificationService {
         }
     }
     
-    pub async fn create_notification(&self, command: CreateNotificationCommand) -> Result<Notification, AppError> {
+    pub async fn create_notification(&self, command: CreateNotificationRequest) -> Result<Notification, AppError> {
         // Validate input
         if command.title.is_empty() || command.content.is_empty() {
             return Err(AppError::ValidationError("Title and content cannot be empty".to_string()));

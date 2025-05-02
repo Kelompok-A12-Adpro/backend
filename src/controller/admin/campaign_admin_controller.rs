@@ -3,12 +3,12 @@ use rocket::serde::json::Json;
 use crate::model::admin::campaign_admin::{AdminCampaignSummary, CampaignStatus, CampaignVerificationRequest};
 
 // Placeholder for simplified controllers
-#[get("/admin/campaigns")]
+#[get("/campaigns")]
 fn get_campaigns() -> Json<Vec<AdminCampaignSummary>> {
     Json(Vec::new())
 }
 
-#[get("/admin/campaigns/<_campaign_id>")]
+#[get("/campaigns/<_campaign_id>")]
 fn get_campaign_details(_campaign_id: i32) -> Json<AdminCampaignSummary> {
     Json(AdminCampaignSummary {
         id: 0,
@@ -23,7 +23,7 @@ fn get_campaign_details(_campaign_id: i32) -> Json<AdminCampaignSummary> {
     })
 }
 
-#[put("/admin/campaigns/<_campaign_id>/verify", format = "json", data = "<_verification_req>")]
+#[put("/campaigns/<_campaign_id>/verify", format = "json", data = "<_verification_req>")]
 fn verify_campaign(_campaign_id: i32, _verification_req: Json<CampaignVerificationRequest>) -> Json<AdminCampaignSummary> {
     Json(AdminCampaignSummary {
         id: 0,

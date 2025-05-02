@@ -1,14 +1,12 @@
 #[macro_use]
 extern crate rocket;
 
+use backend::controller::admin::routes::admin_routes;
+use backend::service::admin::platform_statistics_service::PlatformStatisticsService;
+
 #[get("/")]
 fn index() -> &'static str {
     "Hello, everynyan!"
-}
-
-#[get("/<name>")]
-fn name(name: &str) -> String {
-    format!("Hello, {}!", name)
 }
 
 #[catch(404)]
@@ -18,7 +16,11 @@ fn not_found(req: &rocket::Request<'_>) -> String {
 
 #[launch]
 fn rocket() -> _ {
+    let platform_statistics_service = PlatformStatisticsService::new();
+
     rocket::build()
-        .mount("/", routes![index, name])
+        .manage(platform_statistics_service)
+        .mount("/", routes![index])
+        .mount("/admin", admin_routes())
         .register("/", catchers![not_found])
 }

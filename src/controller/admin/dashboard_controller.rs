@@ -10,7 +10,7 @@ struct AuthUser {
     is_admin: bool,
 }
 
-#[get("/admin/dashboard/statistics")]
+#[get("/dashboard/statistics")]
 async fn get_dashboard_statistics(
     statistics_service: &State<PlatformStatisticsService>
 ) -> Result<Json<PlatformStatistics>, AppError> {
@@ -26,7 +26,7 @@ async fn get_dashboard_statistics(
     }))
 }
 
-#[get("/admin/dashboard/recent-users?<limit>")]
+#[get("/dashboard/recent-users?<limit>")]
 async fn get_recent_users(
     statistics_service: &State<PlatformStatisticsService>,
     limit: Option<i32>

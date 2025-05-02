@@ -1,5 +1,5 @@
 use crate::service::notification::notification_observer::NotificationObserver;
-use crate::service::notification::models::Notification;
+use crate::model::admin::notification::Notification;
 
 pub struct UserNotificationObserver {
     observer_id: String,

@@ -8,8 +8,8 @@ pub enum NotificationTargetType {
     SpecificUser,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AdminNotificationView {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Notification {
     pub id: i32,
     pub title: String,
     pub content: String,
@@ -18,7 +18,7 @@ pub struct AdminNotificationView {
     pub target_id: Option<i32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CreateNotificationRequest {
     pub title: String,
     pub content: String,
