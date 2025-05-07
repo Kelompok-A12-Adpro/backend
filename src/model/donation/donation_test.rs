@@ -1,8 +1,8 @@
-use chrono::{DateTime, Utc, TimeZone}; // Added TimeZone
+use chrono::{DateTime, Utc, TimeZone};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-#[derive(Debug, Serialize, FromRow, PartialEq)] // Added PartialEq for easier assertion in tests
+#[derive(Debug, Serialize, FromRow, PartialEq)]
 pub struct Donation {
     pub id: i32,
     pub user_id: i32,
@@ -12,25 +12,23 @@ pub struct Donation {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)] // Added PartialEq
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct NewDonationRequest {
    pub campaign_id: i32,
    pub amount: f64,
    pub message: Option<String>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)] // Added PartialEq
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct UpdateDonationMessageRequest {
     pub message: Option<String>,
 }
 
-// --- Tests ---
 #[cfg(test)]
 mod tests {
-    use super::*; // Import structs from parent module
-    use serde_json; // For JSON serialization/deserialization
+    use super::*;
+    use serde_json;
 
-    // Helper to create a fixed DateTime<Utc> for reproducible tests
     fn fixed_utc_datetime() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2023, 10, 26, 12, 0, 0).unwrap()
     }
@@ -48,10 +46,6 @@ mod tests {
 
         let serialized_json = serde_json::to_string(&donation).unwrap();
         
-        // Expected JSON. Note: Field order can vary in JSON, but serde_json usually produces a canonical order.
-        // For more robust comparison, deserialize to serde_json::Value and compare.
-        // But for simple structs, string comparison is often sufficient if you control the test.
-        // The timestamp will be in RFC3339 format.
         let expected_json = r#"{"id":1,"user_id":101,"campaign_id":202,"amount":50.75,"message":"Thank you!","created_at":"2023-10-26T12:00:00Z"}"#;
         
         assert_eq!(serialized_json, expected_json);
@@ -95,7 +89,6 @@ mod tests {
 
     #[test]
     fn test_new_donation_request_deserialization_without_message_field() {
-        // Message field is omitted entirely
         let json_input = r#"{
             "campaign_id": 302,
             "amount": 75.00
@@ -106,7 +99,7 @@ mod tests {
         let expected_request = NewDonationRequest {
             campaign_id: 302,
             amount: 75.00,
-            message: None, // Serde correctly maps missing optional fields to None
+            message: None,
         };
         
         assert_eq!(deserialized_request, expected_request);
@@ -114,7 +107,6 @@ mod tests {
 
     #[test]
     fn test_new_donation_request_deserialization_with_null_message() {
-        // Message field is explicitly null
         let json_input = r#"{
             "campaign_id": 303,
             "amount": 10.0,
@@ -126,7 +118,7 @@ mod tests {
         let expected_request = NewDonationRequest {
             campaign_id: 303,
             amount: 10.0,
-            message: None, // Serde correctly maps JSON null to None for Option<String>
+            message: None,
         };
         
         assert_eq!(deserialized_request, expected_request);
@@ -144,8 +136,7 @@ mod tests {
 
     #[test]
     fn test_update_donation_message_request_deserialization_without_message_field() {
-        // Message field is omitted
-        let json_input = r#"{}"#; // Or some other fields, but not 'message'
+        let json_input = r#"{}"#;
         let deserialized_request: UpdateDonationMessageRequest = serde_json::from_str(json_input).unwrap();
         let expected_request = UpdateDonationMessageRequest {
             message: None,
