@@ -14,6 +14,9 @@ pub enum AppError {
 
     #[error("Authentication required")]
     Unauthorized,
+
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
 }
 
 #[rocket::async_trait]
@@ -25,6 +28,7 @@ impl<'r> Responder<'r, 'static> for AppError {
             AppError::ValidationError(_) => Status::BadRequest,
             AppError::Forbidden(_) => Status::Forbidden,
             AppError::Unauthorized => Status::Unauthorized,
+            AppError::InvalidOperation(_) => Status::BadRequest,
         };
         
         Response::build().status(status).ok()

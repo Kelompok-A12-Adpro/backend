@@ -1,2 +1,2 @@
-pub mod donation_controller;
+pub mod campaign;
 pub mod admin;
