@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
-use crate::model::donation::{Donation, NewDonationRequest};
+use crate::model::donation::donation::Donation;
+use crate::model::donation::donation::NewDonationRequest;
 use crate::errors::AppError;
 
 #[async_trait]
@@ -44,4 +45,3 @@ impl DonationRepository for PgDonationRepository {
          unimplemented!()
     }
 }
-
