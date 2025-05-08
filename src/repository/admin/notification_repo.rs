@@ -31,8 +31,8 @@ impl InMemoryNotificationRepository {
 #[async_trait]
 impl NotificationRepository for InMemoryNotificationRepository {
     async fn create_notification(&self, request: &CreateNotificationRequest) -> Result<Notification, AppError> {
-        let mut notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
-        let mut next_id_guard = self.next_id.lock().map_err(|_| AppError::InternalServerError("Failed to lock next_id".to_string()))?;
+        let mut notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
+        let mut next_id_guard = self.next_id.lock().map_err(|_| AppError::InvalidOperation("Failed to lock next_id".to_string()))?;
         let id = *next_id_guard;
         *next_id_guard += 1;
 
@@ -49,17 +49,17 @@ impl NotificationRepository for InMemoryNotificationRepository {
     }
 
     async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError> {
-        let notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
+        let notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
         Ok(notifications.values().cloned().collect())
     }
 
     async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError> {
-        let notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
+        let notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
         Ok(notifications.get(&notification_id).cloned())
     }
 
     async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError> {
-        let mut notifications = self.notifications.lock().map_err(|_| AppError::InternalServerError("Failed to lock notifications map".to_string()))?;
+        let mut notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
         Ok(notifications.remove(&notification_id).is_some())
     }
 }
