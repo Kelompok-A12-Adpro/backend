@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use crate::model::donation::donation::{Donation, NewDonationRequest};
 use crate::errors::AppError;
-use chrono::{Utc};
 
 #[async_trait]
 pub trait DonationRepository: Send + Sync {
