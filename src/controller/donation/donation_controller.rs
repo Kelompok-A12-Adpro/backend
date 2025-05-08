@@ -1,9 +1,9 @@
 use rocket::{State, post, delete, get, routes};
 use rocket::serde::json::Json;
-use crate::service::donation_service::DonationService;
-use crate::model::donation::{NewDonationRequest, Donation};
+use crate::service::donation::donation_service::DonationService;
+use crate::model::donation::donation::{NewDonationRequest, Donation};
 use crate::errors::AppError;
-use crate::auth::AuthUser; 
+use crate::auth::auth::AuthUser; //TODO: Change this to the real one later.
 
 
 #[post("/donations", format = "json", data = "<donation_req>")]
