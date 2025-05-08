@@ -14,15 +14,18 @@ struct AuthUser {
 async fn get_dashboard_statistics(
     statistics_service: &State<PlatformStatisticsService>
 ) -> Result<Json<PlatformStatistics>, AppError> {
-    // Admin auth check would go below here
-    
-    // For now, return placeholder
+    let active_campaigns = statistics_service.get_active_campaigns_count().await?;
+    let total_donations = statistics_service.get_total_donations_amount().await?;
+    let registered_users = statistics_service.get_registered_users_count().await?;
+    let daily_transactions = 20; // Placeholder for daily transactions
+    let weekly_transactions = 150; // Placeholder for weekly transactions
+
     Ok(Json(PlatformStatistics {
-        active_campaigns_count: 0,
-        total_donations_amount: 0.0,
-        registered_users_count: 0,
-        daily_transaction_count: 0,
-        weekly_transaction_count: 0
+        active_campaigns_count: active_campaigns,
+        total_donations_amount: total_donations,
+        registered_users_count: registered_users,
+        daily_transaction_count: daily_transactions,
+        weekly_transaction_count: weekly_transactions
     }))
 }
 
@@ -31,9 +34,18 @@ async fn get_recent_users(
     statistics_service: &State<PlatformStatisticsService>,
     limit: Option<i32>
 ) -> Result<Json<Vec<RecentUser>>, AppError> {
-    // Admin auth check would go below here...
-    // For now, return empty vector
-    Ok(Json(Vec::new()))
+    let limit_value = limit.unwrap_or(10);
+    let user_summaries = statistics_service.get_recent_users(limit_value).await?;
+    let recent_users: Vec<RecentUser> = user_summaries
+        .into_iter()
+        .map(|summary| RecentUser {
+            id: summary.id,
+            username: summary.username,
+            registration_date: summary.registration_date,
+            user_type: summary.user_type,
+        })
+        .collect();
+    Ok(Json(recent_users))
 }
 
 pub fn routes() -> Vec<rocket::Route> {
