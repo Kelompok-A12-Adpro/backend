@@ -1,49 +1,70 @@
-use rocket::{State, post, delete, get, routes};
+use rocket::{State, post, delete, get, routes, response::status};
 use rocket::serde::json::Json;
+use std::sync::Arc;
+
 use crate::service::donation::donation_service::DonationService;
+
 use crate::model::donation::donation::{NewDonationRequest, Donation};
 use crate::errors::AppError;
-use crate::auth::auth::AuthUser; //TODO: Change this to the real one later.
+// use crate::auth::auth::AuthUser; // Commented out temporarily - using a local dummy below
 
+// --- Placeholder AuthUser Definition ---
+// This is a local dummy struct for placeholder purposes.
+// It mimics the essential part of AuthUser needed by the controller.
+#[derive(Debug, Clone)]
+struct DummyAuthUser {
+    pub id: i32,
+}
+// --- End of Placeholder AuthUser Definition ---
+
+// Define a constant for the dummy user ID
+const DUMMY_USER_ID: i32 = 123; // You can change this ID
 
 #[post("/donations", format = "json", data = "<donation_req>")]
 async fn make_donation_route(
-    auth_user: AuthUser, 
-    donation_service: &State<DonationService>,
+    // auth_user: AuthUser, // Original line, removed
+    donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
     donation_req: Json<NewDonationRequest>,
-) -> Result<Json<Donation>, AppError> {
+) -> Result<status::Created<Json<Donation>>, AppError> { // Changed to return 201 Created
+    // Create a dummy AuthUser instance
+    let auth_user = DummyAuthUser { id: DUMMY_USER_ID };
+
     let cmd = crate::service::commands::donation_commands::MakeDonationCommand {
-        donor_id: auth_user.id,
+        donor_id: auth_user.id, // Use the ID from the dummy user
         campaign_id: donation_req.campaign_id,
         amount: donation_req.amount,
         message: donation_req.message.clone(),
     };
     let donation = donation_service.make_donation(cmd).await?;
-    Ok(Json(donation))
+    let location = format!("/api/donations/{}", donation.id); // Construct location for 201
+    Ok(status::Created::new(location).body(Json(donation)))
 }
 
 
 #[delete("/donations/<donation_id>/message")]
 async fn delete_donation_message_route(
-    auth_user: AuthUser,
-    donation_service: &State<DonationService>,
+    // auth_user: AuthUser, // Original line, removed
+    donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
     donation_id: i32,
-) -> Result<(), AppError> { 
+) -> Result<status::NoContent, AppError> { // Changed to return 204 No Content
+    // Create a dummy AuthUser instance
+    let auth_user = DummyAuthUser { id: DUMMY_USER_ID };
+
     let cmd = crate::service::commands::donation_commands::DeleteDonationMessageCommand {
         donation_id,
-        user_id: auth_user.id,
+        user_id: auth_user.id, // Use the ID from the dummy user
     };
     donation_service.delete_donation_message(cmd).await?;
-    Ok(())
+    Ok(status::NoContent)
 }
 
 
 #[get("/campaigns/<campaign_id>/donations")]
 async fn get_campaign_donations_route(
-    donation_service: &State<DonationService>,
+    donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
     campaign_id: i32,
-    
 ) -> Result<Json<Vec<Donation>>, AppError> {
+    // This route doesn't use AuthUser directly, so no changes needed here regarding auth
     let donations = donation_service.get_donations_by_campaign(campaign_id).await?;
     Ok(Json(donations))
 }
@@ -51,10 +72,13 @@ async fn get_campaign_donations_route(
 
 #[get("/donations/me")]
 async fn get_my_donations_route(
-    auth_user: AuthUser,
-    donation_service: &State<DonationService>,
+    // auth_user: AuthUser, // Original line, removed
+    donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
 ) -> Result<Json<Vec<Donation>>, AppError> {
-    let donations = donation_service.get_donations_by_user(auth_user.id).await?;
+    // Create a dummy AuthUser instance
+    let auth_user = DummyAuthUser { id: DUMMY_USER_ID };
+
+    let donations = donation_service.get_donations_by_user(auth_user.id).await?; // Use dummy ID
     Ok(Json(donations))
 }
 

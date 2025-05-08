@@ -10,6 +10,7 @@ sqlx = { version = "0.8.3", features = ["postgres"] }
 chrono = { version = "0.4.40", features = ["serde"] }
 async-trait = "0.1.88"
 thiserror = "2.0.12"
+serde_json = "1.0"
 
 [dev-dependencies]
 mockall = "0.11"
