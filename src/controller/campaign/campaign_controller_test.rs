@@ -133,7 +133,7 @@ mod tests {
     fn test_delete_campaign() {
         let client = setup();
 
-        // 1) create a campaign
+        // create a campaign to delete
         let create = client.post("/campaigns")
             .header(ContentType::JSON)
             .body(json!({
@@ -147,13 +147,42 @@ mod tests {
         let body = create.into_string().unwrap();
         let id = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"].as_i64().unwrap();
 
-        // 2) delete it
         let del = client.delete(format!("/campaigns/{}", id)).dispatch();
+        // should be able to delete the campaign
         assert_eq!(del.status(), Status::NoContent);
 
-        // 3) ensure it's gone
         let get = client.get(format!("/campaigns/{}", id)).dispatch();
+        // should not be able to get the deleted campaign
         assert_eq!(get.status(), Status::NotFound);
-    }
 
+        // create a campaign to test delete after approve
+        let create2 = client.post("/campaigns")
+            .header(ContentType::JSON)
+            .body(json!({
+                "user_id": 2,
+                "name": "Cannot Delete After Approve",
+                "description": "desc2",
+                "target_amount": 200.0
+            }).to_string())
+            .dispatch();
+        assert_eq!(create2.status(), Status::Created);
+        let body2 = create2.into_string().unwrap();
+        let id2 = serde_json::from_str::<serde_json::Value>(&body2).unwrap()["id"].as_i64().unwrap();
+
+        // approve the campaign
+        let apr = client.put(format!("/campaigns/{}/approve", id2))
+            .header(ContentType::JSON)
+            .body(json!({ "admin_id": 99 }).to_string())
+            .dispatch();
+        assert_eq!(apr.status(), Status::Ok);
+
+        let del2 = client.delete(format!("/campaigns/{}", id2)).dispatch();
+        // should not be able to delete the campaign after approve
+        assert_eq!(del2.status(), Status::BadRequest);
+
+        let get2 = client.get(format!("/campaigns/{}", id2)).dispatch();
+        // should be able to get the approved campaign
+        assert_eq!(get2.status(), Status::Ok);
+
+    }
 }
