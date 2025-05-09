@@ -37,7 +37,11 @@ impl CampaignService {
     }
     
     pub async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError> {
-        self.repository.get_campaign(id).await
+        match self.repository.get_campaign(id).await {
+            Ok(opt)       => Ok(opt),
+            Err(AppError::NotFound(_)) => Ok(None),
+            Err(e)         => Err(e),
+        }
     }
     
     pub async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError> {
@@ -52,6 +56,24 @@ impl CampaignService {
         self.repository.get_all_campaigns().await
     }
     
+    pub async fn delete_campaign(&self, id: i32) -> Result<bool, AppError> {
+        // Get the campaign to check its status before deletion
+        let campaign = match self.repository.get_campaign(id).await? {
+            Some(c) => c,
+            None => return Err(AppError::NotFound(format!("Campaign with id {} not found", id))),
+        };
+        
+        // Only allow deletion if campaign is in Pending or Rejected status
+        match campaign.status {
+            CampaignStatus::PendingVerification | CampaignStatus::Rejected => {
+                // Proceed with deletion
+                self.repository.delete_campaign(id).await
+            },
+            _ => Err(AppError::InvalidOperation(format!("Cannot delete campaign in {:?} state", campaign.status))),
+        }
+    }
+
+
     pub async fn approve_campaign(&self, id: i32) -> Result<Campaign, AppError> {
         let mut campaign = match self.repository.get_campaign(id).await? {
             Some(c) => c,
