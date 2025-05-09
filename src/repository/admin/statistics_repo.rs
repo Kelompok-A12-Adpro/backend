@@ -13,8 +13,7 @@ pub trait StatisticsRepository: Send + Sync {
     async fn get_weekly_transaction_count(&self) -> Result<i32, AppError>;
 }
 
-// Define a struct to hold the hardcoded data, similar to the mock
-struct DbStatisticsRepository {
+pub struct DbStatisticsRepository {
     active_campaigns: i32,
     total_donations: f64,
     registered_users: i32,
@@ -25,7 +24,7 @@ struct DbStatisticsRepository {
 
 impl DbStatisticsRepository {
     // Constructor to initialize with hardcoded data matching the test expectations
-    fn new() -> Self {
+    pub fn new() -> Self {
         // Use the same data as the mock for consistency with tests
         let users = vec![
             RecentUser { id: 1, username: "user1".to_string(), registration_date: Utc::now(), user_type: "Donor".to_string() },
