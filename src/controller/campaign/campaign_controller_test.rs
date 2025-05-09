@@ -129,4 +129,31 @@ mod tests {
         assert_eq!(second["user_id"], 20);
     }
 
+    #[test]
+    fn test_delete_campaign() {
+        let client = setup();
+
+        // 1) create a campaign
+        let create = client.post("/campaigns")
+            .header(ContentType::JSON)
+            .body(json!({
+                "user_id": 1,
+                "name": "To Be Deleted",
+                "description": "desc",
+                "target_amount": 100.0
+            }).to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::Created);
+        let body = create.into_string().unwrap();
+        let id = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"].as_i64().unwrap();
+
+        // 2) delete it
+        let del = client.delete(format!("/campaigns/{}", id)).dispatch();
+        assert_eq!(del.status(), Status::NoContent);
+
+        // 3) ensure it's gone
+        let get = client.get(format!("/campaigns/{}", id)).dispatch();
+        assert_eq!(get.status(), Status::NotFound);
+    }
+
 }

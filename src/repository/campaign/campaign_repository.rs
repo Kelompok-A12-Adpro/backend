@@ -15,6 +15,7 @@ pub trait CampaignRepository: Send + Sync {
     async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError>;
     async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError>;
     async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError>;
+    async fn delete_campaign(&self, id: i32) -> Result<bool, AppError>;
 }
 
 pub struct InMemoryCampaignRepository {
