@@ -1,4 +1,4 @@
-use rocket::{State, get, post, put, routes, uri};
+use rocket::{State, get, post, put, delete, routes, uri};
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status::Created;
@@ -86,12 +86,26 @@ async fn approve_campaign(
     }
 }
 
+#[delete("/campaigns/<campaign_id>")]
+async fn delete_campaign(
+    campaign_id: i32,
+    service: &State<Arc<CampaignService>>
+) -> Result<Status, Status> {
+    match service.delete_campaign(campaign_id).await {
+        Ok(_) => Ok(Status::NoContent),
+        Err(AppError::NotFound(_)) => Err(Status::NotFound),
+        Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         create_campaign,
         get_campaign,
         get_user_campaigns,
         approve_campaign,
-        get_all_campaigns
+        get_all_campaigns,
+        delete_campaign,
     ]
 }
