@@ -1,11 +1,29 @@
 use rocket::{get, post, delete, routes, Route, State};
 use rocket::serde::json::Json;
 
-use crate::auth::AuthUser;
 use crate::errors::AppError;
 use crate::model::wallet::wallet::Wallet;
 use crate::model::wallet::transaction::Transaction;
 use crate::service::wallet::wallet_service::WalletService;
+
+// Placeholder for authentication
+pub struct AuthUser {
+    id: i32,
+    is_admin: bool,
+}
+
+#[rocket::async_trait]
+impl<'r> rocket::request::FromRequest<'r> for AuthUser {
+    type Error = AppError;
+
+    async fn from_request(_request: &'r rocket::Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
+        // TODO: Implement actual authentication logic
+        rocket::request::Outcome::Success(AuthUser {
+            id: 1,
+            is_admin: false,
+        })
+    }
+}
 
 #[derive(serde::Deserialize)]
 pub struct TopUpRequest {
