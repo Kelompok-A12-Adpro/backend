@@ -38,7 +38,7 @@ async fn create_campaign(
 async fn get_all_campaigns(
     service: &State<Arc<CampaignService>>
 ) -> Result<Json<Vec<Campaign>>, Status> {
-    match service.get_campaigns_by_status(CampaignStatus::PendingVerification).await {
+    match service.get_all_campaigns().await {
         Ok(campaigns) => Ok(Json(campaigns)),
         Err(_) => Err(Status::InternalServerError),
     }
@@ -91,6 +91,7 @@ pub fn routes() -> Vec<rocket::Route> {
         create_campaign,
         get_campaign,
         get_user_campaigns,
-        approve_campaign
+        approve_campaign,
+        get_all_campaigns
     ]
 }

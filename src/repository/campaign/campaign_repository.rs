@@ -14,6 +14,7 @@ pub trait CampaignRepository: Send + Sync {
     async fn update_campaign_status(&self, id: i32, status: CampaignStatus) -> Result<bool, AppError>;
     async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError>;
     async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError>;
+    async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError>;
 }
 
 pub struct InMemoryCampaignRepository {
@@ -100,5 +101,13 @@ impl CampaignRepository for InMemoryCampaignRepository {
             .collect();
         
         Ok(filtered_campaigns)
+    }
+
+    async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError> {
+        let campaigns = self.campaigns.lock().unwrap();
+        
+        let all_campaigns = campaigns.values().cloned().collect();
+        
+        Ok(all_campaigns)
     }
 }

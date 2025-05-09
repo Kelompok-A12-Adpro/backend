@@ -47,6 +47,10 @@ impl CampaignService {
     pub async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError> {
         self.repository.get_campaigns_by_status(status).await
     }
+
+    pub async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError> {
+        self.repository.get_all_campaigns().await
+    }
     
     pub async fn approve_campaign(&self, id: i32) -> Result<Campaign, AppError> {
         let mut campaign = match self.repository.get_campaign(id).await? {

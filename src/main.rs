@@ -35,7 +35,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .mount("/", campaign_controller::routes())
-        .mount("/", routes![index, name])
         .manage(campaign_service)
+        .mount("/", routes![index, name])
         .register("/", catchers![not_found])
 }
