@@ -21,6 +21,10 @@ impl PgDonationRepository {
     pub fn new(pool: PgPool) -> Self {
         PgDonationRepository { pool }
     }
+    
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
 }
 
 #[async_trait]
@@ -33,15 +37,15 @@ impl DonationRepository for PgDonationRepository {
         unimplemented!()
     }
 
-     async fn find_by_campaign(&self, campaign_id: i32) -> Result<Vec<Donation>, AppError> {
+    async fn find_by_campaign(&self, campaign_id: i32) -> Result<Vec<Donation>, AppError> {
         unimplemented!()
     }
 
-     async fn find_by_user(&self, user_id: i32) -> Result<Vec<Donation>, AppError> {
+    async fn find_by_user(&self, user_id: i32) -> Result<Vec<Donation>, AppError> {
         unimplemented!()
     }
 
     async fn update_message(&self, donation_id: i32, user_id: i32, message: Option<String>) -> Result<u64, AppError> {
-         unimplemented!()
+        unimplemented!()
     }
 }
