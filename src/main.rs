@@ -1,14 +1,11 @@
 #[macro_use]
 extern crate rocket;
 
+use backend::controller::admin::routes::admin_routes;
+
 #[get("/")]
 fn index() -> &'static str {
     "Hello, everynyan!"
-}
-
-#[get("/<name>")]
-fn name(name: &str) -> String {
-    format!("Hello, {}!", name)
 }
 
 #[catch(404)]
@@ -19,6 +16,7 @@ fn not_found(req: &rocket::Request<'_>) -> String {
 #[launch]
 fn rocket() -> _ {
     rocket::build()
-        .mount("/", routes![index, name])
+        .mount("/", routes![index])
+        .mount("/admin", admin_routes())
         .register("/", catchers![not_found])
 }
