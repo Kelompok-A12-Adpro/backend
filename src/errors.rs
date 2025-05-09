@@ -19,6 +19,9 @@ pub enum AppError {
 
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
+
+    #[error("JSON parsing error: {0}")]
+    JsonParseError(String),
 }
 
 #[rocket::async_trait]
@@ -30,6 +33,7 @@ impl<'r> Responder<'r, 'static> for AppError {
             AppError::Forbidden(msg) => (Status::Forbidden, msg),
             AppError::Unauthorized => (Status::Unauthorized, "Authentication required".to_string()), // Provide a default message string
             AppError::InvalidOperation(msg) => (Status::BadRequest, msg),
+            AppError::JsonParseError(msg) => (Status::BadRequest, msg),
         };
 
         // Create the JSON body
