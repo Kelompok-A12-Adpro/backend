@@ -34,6 +34,16 @@ async fn create_campaign(
     Ok(Created::new(location).body(Json(campaign)))
 }
 
+#[get("/campaigns")]
+async fn get_all_campaigns(
+    service: &State<Arc<CampaignService>>
+) -> Result<Json<Vec<Campaign>>, Status> {
+    match service.get_campaigns_by_status(CampaignStatus::PendingVerification).await {
+        Ok(campaigns) => Ok(Json(campaigns)),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
+
 #[get("/campaigns/<campaign_id>")]
 async fn get_campaign(
     campaign_id: i32,

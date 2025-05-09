@@ -14,7 +14,7 @@ fn index() -> &'static str {
     "Hello, everynyan!"
 }
 
-#[get("/<name>")]
+#[get("/<name>", rank=2)]
 fn name(name: &str) -> String {
     format!("Hello, {}!", name)
 }
@@ -34,6 +34,7 @@ fn rocket() -> _ {
     let campaign_service = Arc::new(CampaignService::new(repo, factory, notifier));
 
     rocket::build()
+        .mount("/", campaign_controller::routes())
         .mount("/", routes![index, name])
         .manage(campaign_service)
         .register("/", catchers![not_found])
