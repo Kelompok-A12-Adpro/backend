@@ -18,6 +18,6 @@ fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/admin", admin_routes())
-        .mount("[campaign_id_placeholder]/donasi", donation_routes())
+        .mount("[campaign_id_placeholder]/donation", donation_routes())
         .register("/", catchers![not_found])
 }
