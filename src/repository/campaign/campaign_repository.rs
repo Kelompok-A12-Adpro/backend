@@ -51,7 +51,11 @@ impl CampaignRepository for InMemoryCampaignRepository {
 
     async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError> {
         let campaigns = self.campaigns.lock().unwrap();
-        Ok(campaigns.get(&id).cloned())
+        if let Some(campaign) = campaigns.get(&id) {
+            Ok(Some(campaign.clone()))
+        } else {
+            Err(AppError::NotFound(format!("Campaign with id {} not found", id)))
+        }
     }
 
     async fn update_campaign(&self, mut campaign: Campaign) -> Result<Campaign, AppError> {
@@ -111,4 +115,20 @@ impl CampaignRepository for InMemoryCampaignRepository {
         
         Ok(all_campaigns)
     }
+
+    async fn delete_campaign(&self, id: i32) -> Result<bool, AppError> {
+        let mut campaigns = self.campaigns.lock().unwrap();
+        
+        if let Some(campaign) = campaigns.get(&id) {
+            if campaign.status == CampaignStatus::PendingVerification || campaign.status == CampaignStatus::Rejected {
+                campaigns.remove(&id);
+                Ok(true)
+            } else {
+                Err(AppError::InvalidOperation(format!("Cannot delete campaign in {:?} state", campaign.status)))
+            }
+        } else {
+            Err(AppError::NotFound(format!("Campaign with id {} not found", id)))
+        }
+    }
+
 }
