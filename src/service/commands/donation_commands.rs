@@ -11,5 +11,3 @@ pub struct DeleteDonationMessageCommand {
     pub donation_id: i32,
     pub user_id: i32,
 }
-
-pub mod donation_commands;

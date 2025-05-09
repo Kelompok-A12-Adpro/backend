@@ -60,66 +60,9 @@ jobs:
           args: >
             -Dsonar.externalIssuesReportPaths=sonar-issues.json
             -Dcommunity.rust.lcov.reportPaths=lcov.info
-
-  # Scorecard analysis
-  scorecard-analysis:
-    needs: sonarcloud-linter
-    name: Scorecard analysis
-    runs-on: ubuntu-latest
-    permissions:
-      # Needed to upload the results to code-scanning dashboard.
-      security-events: write
-      # Needed to publish results and get a badge (see publish_results below).
-      id-token: write
-      # Uncomment the permissions below if installing in a private repository.
-      # contents: read
-      # actions: read
-
-    steps:
-      - name: "Checkout code"
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          persist-credentials: false
-
-      - name: "Run analysis"
-        uses: ossf/scorecard-action@0864cf19026789058feabb7e87baa5f140aac736 # v2.3.1
-        with:
-          results_file: results.sarif
-          results_format: sarif
-          # (Optional) "write" PAT token. Uncomment the `repo_token` line below if:
-          # - you want to enable the Branch-Protection check on a *public* repository, or
-          # - you are installing Scorecard on a *private* repository
-          # To create the PAT, follow the steps in https://github.com/ossf/scorecard-action?tab=readme-ov-file#authentication-with-fine-grained-pat-optional.
-          # repo_token: ${{ secrets.SCORECARD_TOKEN }}
-
-          # Public repositories:
-          #   - Publish results to OpenSSF REST API for easy access by consumers
-          #   - Allows the repository to include the Scorecard badge.
-          #   - See https://github.com/ossf/scorecard-action#publishing-results.
-          # For private repositories:
-          #   - `publish_results` will always be set to `false`, regardless
-          #     of the value entered here.
-          publish_results: true
-
-      # Upload the results as artifacts (optional). Commenting out will disable uploads of run results in SARIF
-      # format to the repository Actions tab.
-      - name: "Upload artifact"
-        uses: actions/upload-artifact@v4
-        with:
-          name: SARIF file
-          path: results.sarif
-          retention-days: 5
-
-      # Upload the results to GitHub's code scanning dashboard (optional).
-      # Commenting out will disable upload of results to your repo's Code Scanning dashboard
-      - name: "Upload to code-scanning"
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: results.sarif
   
   # Codecov coverage report
   codecov:
-    needs: scorecard-analysis
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
@@ -138,4 +81,43 @@ jobs:
           files: lcov.info
           fail_ci_if_error: true
   
-  # TODO: Deployment ke Staging, needs jadi separate job
+  push-cr:
+    name: Push to GitHub CR
+    needs: [sonarcloud-linter, codecov]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: hyvos07
+          password: ${{ secrets.PUSH_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t ghcr.io/kelompok-a12-adpro/backend:latest .
+          docker push ghcr.io/kelompok-a12-adpro/backend:latest
+          echo "Docker image pushed to GitHub CR successfully."
+  
+  deploy-koyeb:
+    name: Redeploy on Koyeb
+    needs: [push-cr]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install and configure the Koyeb CLI
+        uses: koyeb-community/koyeb-actions@v2
+        with:
+          api_token: "${{ secrets.KOYEB_API_TOKEN }}"
+      
+      - name: Redeploy service on Koyeb
+        run: |
+          koyeb service redeploy gatherlove-be/gatherlove-be
+          echo "Koyeb service redeployment initiated successfully."
