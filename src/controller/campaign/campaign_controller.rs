@@ -1,7 +1,7 @@
-use rocket::{State, get, post, put, routes};
+use rocket::{State, get, post, put, routes, uri};
 use rocket::serde::json::Json;
 use rocket::http::Status;
-use rocket::response::status;
+use rocket::response::status::Created;
 use std::sync::Arc;
 use serde::Deserialize;
 
@@ -21,22 +21,17 @@ pub struct CreateCampaignRequest {
 async fn create_campaign(
     campaign_req: Json<CreateCampaignRequest>,
     service: &State<Arc<CampaignService>>
-) -> Result<status::Created<Json<Campaign>>, Status> {
-    let result = service.create_campaign(
+) -> Result<Created<Json<Campaign>>, Status> {
+    let campaign = service.create_campaign(
         campaign_req.user_id,
         campaign_req.name.clone(),
         campaign_req.description.clone(),
         campaign_req.target_amount,
-    ).await;
-    
-    match result {
-        Ok(campaign) => {
-            let id = campaign.id; // Store ID before moving campaign
-            let response = Json(campaign);
-            Ok(status::Created::new(format!("/api/campaigns/{}", id)).body(response))
-        },
-        Err(_) => Err(Status::InternalServerError),
-    }
+    ).await.map_err(|_| Status::InternalServerError)?;
+
+    // generate the correct URI, including any mount‐point (e.g. "/api")
+    let location = uri!(get_campaign(campaign.id)).to_string();
+    Ok(Created::new(location).body(Json(campaign)))
 }
 
 #[get("/campaigns/<campaign_id>")]
