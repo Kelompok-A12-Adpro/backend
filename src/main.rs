@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
-use backend::controller::admin::routes::admin_routes;
+use backend::controller::{admin::routes::admin_routes, donation::routes::donation_routes};
 
 #[get("/")]
 fn index() -> &'static str {
@@ -18,5 +18,6 @@ fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/admin", admin_routes())
+        .mount("[campaign_id_placeholder]/donasi", donation_routes())
         .register("/", catchers![not_found])
 }
