@@ -9,19 +9,17 @@ use crate::errors::AppError;
 pub struct CampaignService {
     repository: Arc<dyn CampaignRepository>,
     factory: Arc<CampaignFactory>,
-    notifier: Arc<CampaignNotifier>,
 }
 
 impl CampaignService {
     pub fn new(
         repository: Arc<dyn CampaignRepository>,
         factory: Arc<CampaignFactory>,
-        notifier: Arc<CampaignNotifier>,
+
     ) -> Self {
         CampaignService {
             repository,
             factory,
-            notifier,
         }
     }
     
@@ -73,59 +71,52 @@ impl CampaignService {
         }
     }
 
-
-    pub async fn approve_campaign(&self, id: i32) -> Result<Campaign, AppError> {
-        let mut campaign = match self.repository.get_campaign(id).await? {
-            Some(c) => c,
-            None => return Err(AppError::NotFound(format!("Campaign with id {} not found", id))),
-        };
-        
-        let old_status = campaign.status.clone();
-        
-        match campaign.status {
-            CampaignStatus::PendingVerification => {
-                let state = PendingState {};
-                state.approve(&mut campaign)?;
-            },
-            CampaignStatus::Rejected => {
-                let state = RejectedState {};
-                state.approve(&mut campaign)?;
-            },
-            _ => return Err(AppError::InvalidOperation(format!("Cannot approve campaign in {:?} state", campaign.status))),
+    fn state_from_status(status: CampaignStatus) -> Box<dyn CampaignState> {
+        match status {
+            CampaignStatus::PendingVerification => Box::new(PendingState),
+            CampaignStatus::Active              => Box::new(ActiveState),
+            CampaignStatus::Rejected            => Box::new(RejectedState),
+            CampaignStatus::Completed           => Box::new(CompletedState),
         }
-        
-        // Update campaign in repository
-        let updated = self.repository.update_campaign(campaign.clone()).await?;
-        
-        // Notify observers
-        self.notifier.notify_status_change(&updated, old_status);
-        
+    }
+
+     pub async fn approve_campaign(&self, id: i32) -> Result<Campaign, AppError> {
+        let mut campaign = self.fetch_or_404(id).await?;
+        let old_status = campaign.status.clone();
+
+        // sebelumnya: panggil state berdasarkan status lama
+        let mut state = Self::state_from_status(old_status.clone());
+        state = state.approve(&mut campaign)?;
+        let mut state = Self::state_from_status(campaign.status.clone());
+        state = state.approve(&mut campaign)?;
+
+        let updated = self.repository.update_campaign(campaign).await?;
         Ok(updated)
     }
-    
+
     pub async fn reject_campaign(&self, id: i32, reason: Option<String>) -> Result<Campaign, AppError> {
-        let mut campaign = match self.repository.get_campaign(id).await? {
-            Some(c) => c,
-            None => return Err(AppError::NotFound(format!("Campaign with id {} not found", id))),
-        };
-        
+        let mut campaign = self.fetch_or_404(id).await?;
         let old_status = campaign.status.clone();
-        
-        match campaign.status {
-            CampaignStatus::PendingVerification => {
-                let state = PendingState {};
-                state.reject(&mut campaign)?;
-                // Store rejection reason if provided
-            },
-            _ => return Err(AppError::InvalidOperation(format!("Cannot reject campaign in {:?} state", campaign.status))),
-        }
-        
-        // Update campaign in repository
-        let updated = self.repository.update_campaign(campaign.clone()).await?;
-        
-        // Notify observers
-        self.notifier.notify_status_change(&updated, old_status);
-        
+
+        let mut state = Self::state_from_status(old_status.clone());
+        state = state.reject(&mut campaign)?;
+        let mut state = Self::state_from_status(campaign.status.clone());
+        state = state.reject(&mut campaign)?;
+
+        let updated = self.repository.update_campaign(campaign).await?;
+        Ok(updated)
+    }
+
+    pub async fn complete_campaign(&self, id: i32) -> Result<Campaign, AppError> {
+        let mut campaign = self.fetch_or_404(id).await?;
+        let old_status = campaign.status.clone();
+
+        let mut state = Self::state_from_status(old_status.clone());
+        state = state.complete(&mut campaign)?;
+        let mut state = Self::state_from_status(campaign.status.clone());
+        state = state.complete(&mut campaign)?;
+
+        let updated = self.repository.update_campaign(campaign).await?;
         Ok(updated)
     }
     

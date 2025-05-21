@@ -46,8 +46,7 @@ impl CampaignState for ActiveState {
 
 impl CampaignState for RejectedState {
     fn approve(&self, campaign: &mut Campaign) -> Result<Box<dyn CampaignState>, AppError> {
-        campaign.status = CampaignStatus::Active;
-        Ok(Box::new(ActiveState))
+        Err(AppError::InvalidOperation("Cannot approve a rejected campaign".to_string()))
     }
 
     fn reject(&self, _campaign: &mut Campaign) -> Result<Box<dyn CampaignState>, AppError> {
