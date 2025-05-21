@@ -1,6 +1,8 @@
 FROM docker.io/rust:1-slim-bookworm AS build
 
 ARG pkg=gatherlove-be
+ARG DATABASE_URL
+ENV DATABASE_URL=${DATABASE_URL}
 
 WORKDIR /build
 
@@ -31,8 +33,11 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=build /build/main ./
 
+ARG DATABASE_URL
+
 ENV ROCKET_ADDRESS=0.0.0.0
 ENV ROCKET_PORT=80
+ENV DATABASE_URL=${DATABASE_URL}
 
 EXPOSE 80
 

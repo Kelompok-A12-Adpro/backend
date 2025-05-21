@@ -1,41 +1,42 @@
 #[macro_use]
 extern crate rocket;
 
-use std::sync::Arc;
-use backend::controller::campaign::campaign_controller;
-use backend::service::campaign::campaign_service::CampaignService;
-use backend::service::campaign::factory::campaign_factory::CampaignFactory;
-use backend::repository::campaign::campaign_repository::InMemoryCampaignRepository;
-use backend::service::campaign::observer::campaign_observer::CampaignNotifier;
-
+use backend::{
+    controller::{
+        admin::routes::admin_routes,
+        donation::routes::donation_routes,
+        admin::notification_controller::catchers as notification_catchers,
+    },
+    state::StateManagement,
+    db,
+};
 
 #[get("/")]
 fn index() -> &'static str {
     "Hello, everynyan!"
 }
 
-#[get("/<name>", rank=2)]
-fn name(name: &str) -> String {
-    format!("Hello, {}!", name)
-}
-
 #[catch(404)]
 fn not_found(req: &rocket::Request<'_>) -> String {
-    format!("Sorry, '{}' is not a valid route..", req.uri())
+    format!("404: '{}' is not a valid route.", req.uri())
 }
 
 #[launch]
-fn rocket() -> _ {
+async fn rocket() -> _ {
+    // Initialize environment variables (if using dotenv)
+    dotenv::dotenv().ok();
+    
+    // Initialize the database pool singleton
+    let pool = db::init_pool().await;
 
-    // Temporary in-memory repository for testing purposes
-    let repo = Arc::new(InMemoryCampaignRepository::new());
-    let factory = Arc::new(CampaignFactory::new());
-    let notifier = Arc::new(CampaignNotifier::new());
-    let campaign_service = Arc::new(CampaignService::new(repo, factory, notifier));
-
+    // Initialize all application state
+    let app_state = backend::state::init_state(pool).await;
+    
     rocket::build()
-        .mount("/", campaign_controller::routes())
-        .manage(campaign_service)
-        .mount("/", routes![index, name])
+        .mount("/", routes![index])
+        .mount("/admin", admin_routes())
+        .mount("/[campaign_id_placeholder]/donation", donation_routes())
         .register("/", catchers![not_found])
+        .register("/admin", notification_catchers())
+        .manage_state(app_state)
 }

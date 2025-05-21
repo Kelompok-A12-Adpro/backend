@@ -1,9 +1,5 @@
 # NOTE: Change secrets and other in Github's Repository Secret when deploying to other ECS cluster of your AWS account yah.
 name: Deploy to AWS ECS (Production)
-env:
-  CARGO_TERM_COLOR: always
-  ECS_CLUSTER: GatherLove
-  ECS_SERVICE: gatherlove-be
 
 on:
   workflow_dispatch:
@@ -156,23 +152,32 @@ jobs:
 
     - name: Build and push Docker image
       run: |
-        docker build -t gatherlove-be .
+        docker build \
+          --build-arg DATABASE_URL=${{ secrets.DATABASE_URL }} \
+          -t gatherlove-be .
         aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
         docker tag gatherlove-be:latest ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
         docker push ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
 
     - name: Deploy to ECS
+      env:
+        ECS_CLUSTER: GatherLove
+        ECS_SERVICE: gatherlove-be
       run: |
         aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
         aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
         echo "Deployment to ECS completed successfully."
     
     - name: Get Public IP Address and Set to DuckDNS
+      env:
+          ECS_CLUSTER: GatherLove
+          ECS_SERVICE: gatherlove-be
       run: |
         TASK_ARN=$(aws ecs list-tasks --cluster ${{ env.ECS_CLUSTER }} --service-name ${{ env.ECS_SERVICE }} --query 'taskArns[0]' --output text)
         TASK_DETAILS=$(aws ecs describe-tasks --cluster ${{ env.ECS_CLUSTER }} --tasks $TASK_ARN)
-        
-        PUBLIC_IP=$(echo $TASK_DETAILS | jq -r '.tasks[0].containers[0].networkInterfaces[0].privateIpv4Address')
+        ENI=$(echo $TASK_DETAILS | jq -r '.tasks[0].attachments[0].details[] | select(.name=="networkInterfaceId").value')
+
+        PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
         
         DUCKDNS_TOKEN=${{ secrets.DUCKDNS_TOKEN }}
         DUCKDNS_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=gatherlove-be&token=$DUCKDNS_TOKEN&ip=$PUBLIC_IP&verbose=true")
