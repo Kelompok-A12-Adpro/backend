@@ -32,6 +32,43 @@ impl CampaignService {
         let campaign = self.factory.create_campaign(user_id, name, description, target_amount);
         self.repository.create_campaign(campaign).await
     }
+
+    pub async fn update_campaign(
+        &self,
+        id: i32,
+        user_id: i32,
+        name: Option<String>,
+        description: Option<String>,
+        target_amount: Option<f64>,
+    ) -> Result<Campaign, AppError> {
+        // Fetch existing campaign
+        let mut campaign = self.fetch_or_404(id).await?;
+        
+        // Check if user owns the campaign
+        if campaign.user_id != user_id {
+            return Err(AppError::InvalidOperation("User not authorized to update this campaign".to_string()));
+        }
+        
+        // Only allow updates if campaign is in PendingVerification or Rejected status
+        match campaign.status {
+            CampaignStatus::PendingVerification => {
+                // Update fields if provided
+                if let Some(new_name) = name {
+                    campaign.name = new_name;
+                }
+                if let Some(new_description) = description {
+                    campaign.description = new_description;
+                }
+                if let Some(new_target) = target_amount {
+                    campaign.target_amount = new_target;
+                }
+                
+                // Update in repository
+                self.repository.update_campaign(campaign).await
+            },
+            _ => Err(AppError::InvalidOperation(format!("Cannot update campaign in {:?} state", campaign.status))),
+        }
+    }
     
     pub async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError> {
         match self.repository.get_campaign(id).await {

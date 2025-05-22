@@ -17,6 +17,14 @@ pub struct CreateCampaignRequest {
     pub target_amount: f64,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateCampaignRequest {
+    pub user_id: i32,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub target_amount: Option<f64>,
+}
+
 #[post("/campaigns", format = "json", data = "<campaign_req>")]
 async fn create_campaign(
     campaign_req: Json<CreateCampaignRequest>,
@@ -33,6 +41,28 @@ async fn create_campaign(
     let location = uri!(get_campaign(campaign.id)).to_string();
     Ok(Created::new(location).body(Json(campaign)))
 }
+
+#[put("/campaigns/<id>", format = "json", data = "<update_req>")]
+async fn update_campaign(
+    id: i32,
+    update_req: Json<UpdateCampaignRequest>,
+    service: &State<Arc<CampaignService>>
+) -> Result<Json<Campaign>, Status> {
+    
+    match service.update_campaign(
+        id,
+        update_req.user_id,
+        update_req.name.clone(),
+        update_req.description.clone(),
+        update_req.target_amount,
+    ).await {
+        Ok(campaign) => Ok(Json(campaign)),
+        Err(AppError::NotFound(_)) => Err(Status::NotFound),
+        Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
+
 
 #[get("/campaigns")]
 async fn get_all_campaigns(
@@ -107,5 +137,6 @@ pub fn routes() -> Vec<rocket::Route> {
         approve_campaign,
         get_all_campaigns,
         delete_campaign,
+        update_campaign,
     ]
 }

@@ -69,7 +69,7 @@ impl CampaignRepository for InMemoryCampaignRepository {
         campaigns.insert(campaign.id, campaign.clone());
         
         Ok(campaign)
-    }
+    } 
 
     async fn update_campaign_status(&self, id: i32, status: CampaignStatus) -> Result<bool, AppError> {
         let mut campaigns = self.campaigns.lock().unwrap();
