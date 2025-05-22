@@ -2,7 +2,6 @@ use std::sync::Arc;
 use crate::model::campaign::campaign::{Campaign, CampaignStatus};
 use crate::repository::campaign::campaign_repository::CampaignRepository;
 use crate::service::campaign::factory::campaign_factory::CampaignFactory;
-use crate::service::campaign::observer::campaign_observer::CampaignNotifier;
 use crate::service::campaign::state::campaign_state::{CampaignState, PendingState, ActiveState, RejectedState, CompletedState};
 use crate::errors::AppError;
 
@@ -71,12 +70,19 @@ impl CampaignService {
         }
     }
 
-    fn state_from_status(status: CampaignStatus) -> Box<dyn CampaignState> {
+    fn state_from_status(status: CampaignStatus) -> Box<dyn CampaignState + Send> {
         match status {
             CampaignStatus::PendingVerification => Box::new(PendingState),
             CampaignStatus::Active              => Box::new(ActiveState),
             CampaignStatus::Rejected            => Box::new(RejectedState),
             CampaignStatus::Completed           => Box::new(CompletedState),
+        }
+    }
+
+    pub async fn fetch_or_404(&self, id: i32) -> Result<Campaign, AppError> {
+        match self.get_campaign(id).await? {
+            Some(campaign) => Ok(campaign),
+            None => Err(AppError::NotFound(format!("Campaign with id {} not found", id))),
         }
     }
 

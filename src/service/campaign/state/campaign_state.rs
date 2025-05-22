@@ -1,7 +1,7 @@
 use crate::model::campaign::campaign::{Campaign, CampaignStatus};
 use crate::errors::AppError;
 
-pub trait CampaignState {
+pub trait CampaignState: Send {
     fn approve(&self, campaign: &mut Campaign) -> Result<Box<dyn CampaignState>, AppError>;
     fn reject(&self, campaign: &mut Campaign) -> Result<Box<dyn CampaignState>, AppError>;
     fn complete(&self, campaign: &mut Campaign) -> Result<Box<dyn CampaignState>, AppError>;

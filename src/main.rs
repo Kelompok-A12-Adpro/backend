@@ -6,6 +6,7 @@ use backend::{
         admin::routes::admin_routes,
         donation::routes::donation_routes,
         admin::notification_controller::catchers as notification_catchers,
+        campaign::routes::campaign_routes,
     },
     state::StateManagement,
     db,
@@ -34,6 +35,7 @@ async fn rocket() -> _ {
     
     rocket::build()
         .mount("/", routes![index])
+        .mount("/", campaign_routes())
         .mount("/admin", admin_routes())
         .mount("/[campaign_id_placeholder]/donation", donation_routes())
         .register("/", catchers![not_found])
