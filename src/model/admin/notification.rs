@@ -61,12 +61,13 @@ pub fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
         return Err("Content cannot be empty".to_string());
     }
 
-    if req.target_type != NotificationTargetType::AllUsers && req.adt_detail.is_none() {
+    if (req.target_type != NotificationTargetType::AllUsers &&
+        req.target_type != NotificationTargetType::NewCampaign
+    ) && req.adt_detail.is_none() {
         return Err("Add detail must be provided for this target type".to_string());
     }
 
-    if (req.target_type == NotificationTargetType::SpecificUser
-        || req.target_type == NotificationTargetType::NewCampaign)
+    if req.target_type == NotificationTargetType::SpecificUser
         && req.adt_detail.as_ref().map_or(false, |detail| {
             let email_regex =
                 regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
@@ -74,7 +75,7 @@ pub fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
         })
     {
         return Err(
-            "Add detail must be a valid email for SpecificUser or NewCampaign target type"
+            "Add detail must be a valid email for SpecificUser target type"
                 .to_string(),
         );
     }
