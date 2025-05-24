@@ -28,6 +28,9 @@ pub enum AppError {
 
     #[error("Database constraint violation: {0}")]
     DatabaseConstraintViolation(String),
+
+     #[error("Internal server error: {0}")]
+    InternalServerError(String),
 }
 
 #[rocket::async_trait]
@@ -41,11 +44,15 @@ impl<'r> Responder<'r, 'static> for AppError {
             AppError::InvalidOperation(msg) => (Status::BadRequest, msg),
             AppError::JsonParseError(msg) => (Status::BadRequest, msg),
             AppError::DatabaseError(msg) => (Status::InternalServerError, msg),
-             AppError::DatabaseConstraintViolation(msg) => {
+            AppError::DatabaseConstraintViolation(msg) => {
                 // Log the specific constraint violation server-side for debugging if needed
                 // eprintln!("Database Constraint Violation: {}", msg);
                 (Status::Conflict, msg) // HTTP 409 Conflict is good for this
-            }
+            },
+            AppError::InternalServerError(ref msg) => {
+                eprintln!("Internal server error detail: {}", msg); // Log detailed error
+                (Status::InternalServerError, "An internal server error occurred.".to_string()) // Generic message for client
+            },
         };
 
         // Create the JSON body
