@@ -36,7 +36,7 @@ async fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/admin", admin_routes())
-        .mount("/[campaign_id_placeholder]/donation", donation_routes())
+        .mount("/<campaign_id_placeholder>/donation", donation_routes())
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
         .manage_state(app_state)
