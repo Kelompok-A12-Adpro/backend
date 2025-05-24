@@ -36,5 +36,5 @@ CREATE TABLE IF NOT EXISTS notification_user (
     announcement_id INT NOT NULL,
     created_at timestamp NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_email, announcement_id),
-    FOREIGN KEY (announcement_id) REFERENCES notification(id)
+    FOREIGN KEY (announcement_id) REFERENCES notification(id) ON DELETE CASCADE
 );
