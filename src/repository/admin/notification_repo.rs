@@ -392,8 +392,8 @@ mod tests {
         let request = CreateNotificationRequest {
             title: "To Be Deleted".to_string(),
             content: "Delete me".to_string(),
-            target_type: NotificationTargetType::AllUsers,
-            adt_detail: None,
+            target_type: NotificationTargetType::SpecificUser,
+            adt_detail: Some("greg@gmail.com".to_string()),
         };
 
         let created_notification = repo.create_notification(&request).await.unwrap();
@@ -424,6 +424,13 @@ mod tests {
             .await
             .expect("Failed to delete non-existent notification");
         assert!(!delete_again_result);
+
+        // Ensure the notification_user entry is also deleted
+        let user_notifications = repo
+            .get_notification_for_user("greg@gmail.com".to_string())
+            .await
+            .expect("Failed to get user notifications");
+        assert!(user_notifications.is_empty(), "User notifications should be empty after deletion");
     }
 
     #[tokio::test]
@@ -494,5 +501,58 @@ mod tests {
             .expect("Failed to get all notifications");
         assert!(!all_notifications.is_empty(), "All notifications should not be empty");
         assert!(all_notifications.iter().any(|n| n.id == notification_id), "All notifications should contain the created notification");    
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_delete_notification_user() {
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
+        let request = CreateNotificationRequest {
+            title: "To Be Deleted User".to_string(),
+            content: "Delete me for user".to_string(),
+            target_type: NotificationTargetType::SpecificUser,
+            adt_detail: Some("greg@gmail.com".to_string()),
+        };
+
+        let created_notification = repo.create_notification(&request).await.unwrap();
+        let notification_id = created_notification.id;
+        assert!(
+            repo.get_notification_by_id(notification_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            repo.get_notification_for_user("greg@gmail.com".to_string())
+                .await
+                .unwrap()
+                .iter()
+                .any(|n| n.id == notification_id)
+        );
+        
+        let delete_result = repo
+            .delete_notification_user(notification_id, "greg@gmail.com".to_string())
+            .await
+            .expect("Failed to delete notification for user");
+        assert!(delete_result, "Failed to delete notification for user");
+        assert!(
+            repo.get_notification_for_user("greg@gmail.com".to_string())
+                .await
+                .unwrap()
+                .iter()
+                .all(|n| n.id != notification_id),
+            "Notification should not be present for user after deletion"
+        );
+
+        // Ensure the notification itself is still present
+        assert!(
+            repo.get_notification_by_id(notification_id)
+                .await
+                .unwrap()
+                .is_some(),
+            "Notification should still exist after user deletion"
+        );
     }
 }
