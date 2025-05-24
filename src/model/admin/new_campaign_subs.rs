@@ -7,24 +7,6 @@ pub struct NewCampaignSubscription {
     pub start_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewCampaignSubscriptionRequest {
-    pub user_email: String,
-    pub start_at: DateTime<Utc>,
-}
-
-pub fn validate_request(req: &NewCampaignSubscriptionRequest) -> Result<(), String> {
-    if req.user_email.is_empty() {
-        return Err("User email cannot be empty".to_string());
-    }
-    if req.start_at.timestamp() <= 0 {
-        return Err("Start time must be a valid timestamp".to_string());
-    }
-
-    Ok(())
-}
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
