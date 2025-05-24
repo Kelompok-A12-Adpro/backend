@@ -126,7 +126,6 @@ impl NotificationRepository for DbNotificationRepository {
 
                 Ok(true)
             }
-            _ => Err(AppError::ValidationError("Unsupported target type".to_string()))
         }
     }
 
