@@ -11,6 +11,23 @@ permissions: read-all
 jobs:
   # TODO: Add a job to run the tests
 
+  # Database migration
+  database-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client (psql)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run SQL Dump
+        run: |
+          psql ${{ secrets.DATABASE_URL }} -f sql/dump.sql
+          echo "Database schema update completed successfully."
+
   # SonarCloud analysis and linter
   sonarcloud-linter:
     name: SonarCloud analysis + Linter
