@@ -3,9 +3,34 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NotificationTargetType {
-    AllUsers,
-    Fundraisers,
-    SpecificUser,
+    AllUsers,     // General Announcements
+    SpecificUser, // Specific User notifications (For block users and other specific cases)
+    Fundraisers,  // Specific Fundraiser-only notifications (Campaign related)
+    Donors,       // Specific Donor-only notifications (Donation related)
+    NewCampaign,  // New Campaign notifications
+}
+
+impl NotificationTargetType {
+    pub fn to_string(&self) -> String {
+        match self {
+            NotificationTargetType::AllUsers => "AllUsers".to_string(),
+            NotificationTargetType::SpecificUser => "SpecificUser".to_string(),
+            NotificationTargetType::Fundraisers => "Fundraisers".to_string(),
+            NotificationTargetType::Donors => "Donors".to_string(),
+            NotificationTargetType::NewCampaign => "NewCampaign".to_string(),
+        }
+    }
+
+    pub fn from_string(s: &str) -> Option<NotificationTargetType> {
+        match s {
+            "AllUsers" => Some(NotificationTargetType::AllUsers),
+            "SpecificUser" => Some(NotificationTargetType::SpecificUser),
+            "Fundraisers" => Some(NotificationTargetType::Fundraisers),
+            "Donors" => Some(NotificationTargetType::Donors),
+            "NewCampaign" => Some(NotificationTargetType::NewCampaign),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +40,6 @@ pub struct Notification {
     pub content: String,
     pub created_at: DateTime<Utc>,
     pub target_type: NotificationTargetType,
-    pub target_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,30 +47,51 @@ pub struct CreateNotificationRequest {
     pub title: String,
     pub content: String,
     pub target_type: NotificationTargetType,
-    pub target_id: Option<i32>,
+    // Specific User & New Campaign: User Email
+    // Fundraisers & Donors: Campaign ID
+    pub adt_detail: Option<String>,
 }
 
 pub fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
     if req.title.is_empty() {
         return Err("Title cannot be empty".to_string());
     }
+
     if req.content.is_empty() {
         return Err("Content cannot be empty".to_string());
     }
-    match req.target_type {
-        NotificationTargetType::SpecificUser => {
-            if req.target_id.is_none() {
-                return Err("target_id is required for SpecificUser".to_string());
-            }
-        }
-        NotificationTargetType::AllUsers | NotificationTargetType::Fundraisers => {
-            if req.target_id.is_some() {
-                return Err("target_id must be None for AllUsers or Fundraisers".to_string());
-            }
-        }
+
+    if req.target_type != NotificationTargetType::AllUsers && req.adt_detail.is_none() {
+        return Err("Add detail must be provided for this target type".to_string());
     }
+
+    if (req.target_type == NotificationTargetType::SpecificUser
+        || req.target_type == NotificationTargetType::NewCampaign)
+        && req.adt_detail.as_ref().map_or(false, |detail| {
+            let email_regex =
+                regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+            !email_regex.is_match(detail)
+        })
+    {
+        return Err(
+            "Add detail must be a valid email for SpecificUser or NewCampaign target type"
+                .to_string(),
+        );
+    }
+
+    if (req.target_type == NotificationTargetType::Fundraisers
+        || req.target_type == NotificationTargetType::Donors)
+        && req.adt_detail.as_ref().map_or(false, |detail| {
+            detail.parse::<i32>().is_err()
+        })
+    {
+        return Err("Add detail must be a valid Campaign ID for Fundraisers or Donors target type"
+            .to_string());
+    }
+
     Ok(())
 }
+
 
 #[cfg(test)]
 mod tests {
