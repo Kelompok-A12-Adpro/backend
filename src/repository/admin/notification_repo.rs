@@ -13,6 +13,7 @@ pub trait NotificationRepository: Send + Sync {
     async fn get_notification_for_user(&self, user_email: String) -> Result<Vec<Notification>, AppError>;
     async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError>;
     async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError>;
+    async fn delete_notification_user(&self, notification_id: i32, user_email: String) -> Result<bool, AppError>;
 }
 
 pub struct DbNotificationRepository {
@@ -232,6 +233,25 @@ impl NotificationRepository for DbNotificationRepository {
             .execute(&mut *conn)
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_notification_user(&self, notification_id: i32, user_email: String) -> Result<bool, AppError> {
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        let result = sqlx::query!(
+            "DELETE FROM notification_user WHERE announcement_id = $1 AND user_email = $2",
+            notification_id,
+            user_email
+        )
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         Ok(result.rows_affected() > 0)
     }
