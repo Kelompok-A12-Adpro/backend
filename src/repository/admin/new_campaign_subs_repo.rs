@@ -22,15 +22,42 @@ impl DbNewCampaignSubscriptionRepository {
 #[async_trait]
 impl NewCampaignSubscriptionRepository for DbNewCampaignSubscriptionRepository {
     async fn subscribe(&self, user_email: String) -> Result<(), AppError> {
-
+        sqlx::query!(
+            "INSERT INTO announcement_subscription (user_email) VALUES ($1)",
+            user_email
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        Ok(())
     }
 
     async fn unsubscribe(&self, user_email: String) -> Result<(), AppError> {
-
+        sqlx::query!(
+            "DELETE FROM announcement_subscription WHERE user_email = $1",
+            user_email
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        Ok(())
     }
 
     async fn get_subscribers(&self) -> Result<Vec<NewCampaignSubscription>, AppError> {
+        let rows = sqlx::query!("SELECT user_email, start_at FROM announcement_subscription")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
+        let subscribers: Vec<NewCampaignSubscription> = rows
+            .into_iter()
+            .map(|row| NewCampaignSubscription {
+                user_email: row.user_email,
+                start_at: row.start_at.and_utc(),
+            })
+            .collect();
+
+        Ok(subscribers)
     }
 }
 
