@@ -6,7 +6,7 @@ use crate::service::donation::donation_service::DonationService;
 
 use crate::model::donation::donation::{NewDonationRequest, Donation};
 use crate::errors::AppError;
-// use crate::auth::auth::AuthUser; // Commented out temporarily - using a local dummy below
+//use auth::AuthUser; // Commented out temporarily - using a local dummy below
 
 // --- Placeholder AuthUser Definition ---
 // This is a local dummy struct for placeholder purposes.
