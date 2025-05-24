@@ -3,6 +3,7 @@
 -- and include it on the correlated migration.sql
 
 -- Database initialization script
+\set ON_ERROR_STOP on -- Add this line
 \! echo '\033[1;32mStarting database initialization\033[0m';
 
 -- Include migration
