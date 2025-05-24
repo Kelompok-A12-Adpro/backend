@@ -80,6 +80,32 @@ impl CampaignService {
             _ => Err(AppError::InvalidOperation(format!("Cannot update campaign in {:?} state", campaign.status))),
         }
     }
+
+    pub async fn delete_campaign(
+        &self,
+        id: i32,
+        user_id: i32,
+    ) -> Result<(), AppError> {
+        // ambil campaign atau 404
+        let campaign = self.fetch_or_404(id).await?;
+        // cek ownership
+        if campaign.user_id != user_id {
+            return Err(AppError::InvalidOperation(
+                "Not authorized to delete this campaign".into()
+            ));
+        }
+        // cek state
+        match campaign.status {
+            CampaignStatus::PendingVerification | CampaignStatus::Rejected => {
+                // panggil repo, buang hasil boolean
+                self.repository.delete_campaign(id).await?;
+                Ok(())
+            }
+            _ => Err(AppError::InvalidOperation(
+                format!("Cannot delete campaign in {:?} state", campaign.status)
+            )),
+        }
+    }
     
     pub async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError> {
         match self.repository.get_campaign(id).await {
@@ -99,27 +125,6 @@ impl CampaignService {
 
     pub async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError> {
         self.repository.get_all_campaigns().await
-    }
-    
-    pub async fn delete_campaign(&self, id: i32) -> Result<bool, AppError> {
-        // Get the campaign to check its status before deletion
-        let campaign = match self.repository.get_campaign(id).await? {
-            Some(c) => c,
-            None => return Err(AppError::NotFound(format!("Campaign with id {} not found", id))),
-        };
-
-        if campaign.user_id != id { // TODO: Change variabel user_id to check against the user_id of the authenticated user
-            return Err(AppError::InvalidOperation("User not authorized to delete this campaign".to_string()));
-        }
-        
-        // Only allow deletion if campaign is in Pending or Rejected status
-        match campaign.status {
-            CampaignStatus::PendingVerification | CampaignStatus::Rejected => {
-                // Proceed with deletion
-                self.repository.delete_campaign(id).await
-            },
-            _ => Err(AppError::InvalidOperation(format!("Cannot delete campaign in {:?} state", campaign.status))),
-        }
     }
 
     fn state_from_status(status: CampaignStatus) -> Box<dyn CampaignState + Send> {

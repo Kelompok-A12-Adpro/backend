@@ -1,134 +1,110 @@
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use chrono::Utc;
-
+use sqlx::PgPool;
+use chrono::{DateTime, Utc};
 use crate::model::campaign::campaign::{Campaign, CampaignStatus};
 use crate::errors::AppError;
+use crate::repository::campaign::campaign_repository::CampaignRepository;
 
-#[async_trait]
-pub trait CampaignRepository: Send + Sync {
-    async fn create_campaign(&self, campaign: Campaign) -> Result<Campaign, AppError>;
-    async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError>;
-    async fn update_campaign(&self, campaign: Campaign) -> Result<Campaign, AppError>;
-    async fn update_campaign_status(&self, id: i32, status: CampaignStatus) -> Result<bool, AppError>;
-    async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError>;
-    async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError>;
-    async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError>;
-    async fn delete_campaign(&self, id: i32) -> Result<bool, AppError>;
+pub struct PgCampaignRepository {
+    pool: PgPool,
 }
 
-pub struct InMemoryCampaignRepository {
-    campaigns: Arc<Mutex<HashMap<i32, Campaign>>>,
-    next_id: Arc<Mutex<i32>>,
-}
-
-impl InMemoryCampaignRepository {
-    pub fn new() -> Self {
-        InMemoryCampaignRepository {
-            campaigns: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(Mutex::new(1)),
-        }
-    }
+impl PgCampaignRepository {
+    pub fn new(pool: PgPool) -> Self { Self { pool } }
 }
 
 #[async_trait]
-impl CampaignRepository for InMemoryCampaignRepository {
+impl CampaignRepository for PgCampaignRepository {
     async fn create_campaign(&self, mut campaign: Campaign) -> Result<Campaign, AppError> {
-        let mut next_id = self.next_id.lock().unwrap();
-        let id = *next_id;
-        *next_id += 1;
-        
-        campaign.id = id;
-        campaign.created_at = Utc::now();
-        campaign.updated_at = Utc::now();
-        
-        let mut campaigns = self.campaigns.lock().unwrap();
-        campaigns.insert(id, campaign.clone());
-        
-        Ok(campaign)
+        let rec = sqlx::query_as!(
+            Campaign,
+            r#"
+            INSERT INTO campaigns 
+              (user_id, name, description, target_amount, end_date, image_url, status, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            RETURNING id, user_id, name, description, target_amount, collected_amount, end_date, image_url, status as "status: CampaignStatus", created_at, updated_at, evidence_url, evidence_uploaded_at
+            "#,
+            campaign.user_id,
+            campaign.name,
+            campaign.description,
+            campaign.target_amount,
+            campaign.end_date,
+            campaign.image_url,
+            campaign.status as CampaignStatus,
+            campaign.created_at,
+            campaign.updated_at
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(rec)
     }
 
     async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError> {
-        let campaigns = self.campaigns.lock().unwrap();
-        if let Some(campaign) = campaigns.get(&id) {
-            Ok(Some(campaign.clone()))
-        } else {
-            Err(AppError::NotFound(format!("Campaign with id {} not found", id)))
-        }
+        let rec = sqlx::query_as!(
+            Campaign,
+            "SELECT * FROM campaigns WHERE id=$1",
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(rec)
     }
 
-    async fn update_campaign(&self, mut campaign: Campaign) -> Result<Campaign, AppError> {
-        let mut campaigns = self.campaigns.lock().unwrap();
-        
-        if !campaigns.contains_key(&campaign.id) {
-            return Err(AppError::NotFound(format!("Campaign with id {} not found", campaign.id)));
-        }
-        
-        campaign.updated_at = Utc::now();
-        campaigns.insert(campaign.id, campaign.clone());
-        
-        Ok(campaign)
-    } 
+    async fn update_campaign(&self, campaign: Campaign) -> Result<Campaign, AppError> {
+        let rec = sqlx::query_as!(
+            Campaign,
+            r#"
+            UPDATE campaigns
+               SET name=$2, description=$3, target_amount=$4, end_date=$5, image_url=$6, status=$7, updated_at=$8
+             WHERE id=$1
+             RETURNING *  
+            "#,
+            campaign.id,
+            campaign.name,
+            campaign.description,
+            campaign.target_amount,
+            campaign.end_date,
+            campaign.image_url,
+            campaign.status as CampaignStatus,
+            Utc::now()
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(rec)
+    }
 
     async fn update_campaign_status(&self, id: i32, status: CampaignStatus) -> Result<bool, AppError> {
-        let mut campaigns = self.campaigns.lock().unwrap();
-        
-        if let Some(mut campaign) = campaigns.get(&id).cloned() {
-            campaign.status = status;
-            campaign.updated_at = Utc::now();
-            campaigns.insert(id, campaign);
-            Ok(true)
-        } else {
-            Err(AppError::NotFound(format!("Campaign with id {} not found", id)))
-        }
+        let res = sqlx::query!("UPDATE campaigns SET status=$2, updated_at=$3 WHERE id=$1", id, status as _, Utc::now())
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected() == 1)
     }
 
     async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError> {
-        let campaigns = self.campaigns.lock().unwrap();
-        
-        let user_campaigns = campaigns
-            .values()
-            .filter(|campaign| campaign.user_id == user_id)
-            .cloned()
-            .collect();
-        
-        Ok(user_campaigns)
+        let recs = sqlx::query_as!(Campaign, "SELECT * FROM campaigns WHERE user_id=$1", user_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(recs)
     }
 
     async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError> {
-        let campaigns = self.campaigns.lock().unwrap();
-        
-        let filtered_campaigns = campaigns
-            .values()
-            .filter(|campaign| campaign.status == status)
-            .cloned()
-            .collect();
-        
-        Ok(filtered_campaigns)
+        let recs = sqlx::query_as!(Campaign, "SELECT * FROM campaigns WHERE status=$1", status as _)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(recs)
     }
 
     async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError> {
-        let campaigns = self.campaigns.lock().unwrap();
-        
-        let all_campaigns = campaigns.values().cloned().collect();
-        
-        Ok(all_campaigns)
+        let recs = sqlx::query_as!(Campaign, "SELECT * FROM campaigns")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(recs)
     }
 
     async fn delete_campaign(&self, id: i32) -> Result<bool, AppError> {
-        let mut campaigns = self.campaigns.lock().unwrap();
-        
-        if let Some(campaign) = campaigns.get(&id) {
-            if campaign.status == CampaignStatus::PendingVerification || campaign.status == CampaignStatus::Rejected {
-                campaigns.remove(&id);
-                Ok(true)
-            } else {
-                Err(AppError::InvalidOperation(format!("Cannot delete campaign in {:?} state", campaign.status)))
-            }
-        } else {
-            Err(AppError::NotFound(format!("Campaign with id {} not found", id)))
-        }
+        let res = sqlx::query!("DELETE FROM campaigns WHERE id=$1", id)
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected() == 1)
     }
-
 }

@@ -24,7 +24,6 @@ pub struct CreateCampaignRequest {
 
 #[derive(Deserialize)]
 pub struct UpdateCampaignRequest {
-    pub user_id: i32,
     pub name: Option<String>,
     pub description: Option<String>,
     pub target_amount: Option<f64>,
@@ -57,13 +56,14 @@ async fn create_campaign(
 #[put("/campaigns/<id>", format = "json", data = "<update_req>")]
 async fn update_campaign(
     id: i32,
+    user: AuthUser,
     update_req: Json<UpdateCampaignRequest>,
     service: &State<Arc<CampaignService>>
 ) -> Result<Json<Campaign>, Status> {
     
     match service.update_campaign(
         id,
-        update_req.user_id,
+        user.id,
         update_req.name.clone(),
         update_req.description.clone(),
         update_req.target_amount,
@@ -77,10 +77,24 @@ async fn update_campaign(
     }
 }
 
+#[delete("/campaigns/<campaign_id>")]
+async fn delete_campaign(
+    campaign_id: i32,
+    user: AuthUser,
+    service: &State<Arc<CampaignService>>
+) -> Result<Status, Status> {
+    match service.delete_campaign(campaign_id, user.id).await {
+        Ok(_) => Ok(Status::NoContent),
+        Err(AppError::NotFound(_)) => Err(Status::NotFound),
+        Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
 
 #[get("/campaigns")]
 async fn get_all_campaigns(
-    service: &State<Arc<CampaignService>>
+    service: &State<Arc<CampaignService>>,
+    user: AuthUser
 ) -> Result<Json<Vec<Campaign>>, Status> {
     match service.get_all_campaigns().await {
         Ok(campaigns) => Ok(Json(campaigns)),
@@ -91,6 +105,7 @@ async fn get_all_campaigns(
 #[get("/campaigns/<campaign_id>")]
 async fn get_campaign(
     campaign_id: i32,
+    user: AuthUser,
     service: &State<Arc<CampaignService>>
 ) -> Result<Json<Campaign>, Status> {
     match service.get_campaign(campaign_id).await {
@@ -103,6 +118,7 @@ async fn get_campaign(
 #[get("/campaigns/user/<user_id>")]
 async fn get_user_campaigns(
     user_id: i32,
+    
     service: &State<Arc<CampaignService>>
 ) -> Result<Json<Vec<Campaign>>, Status> {
     match service.get_campaigns_by_user(user_id).await {
@@ -124,19 +140,6 @@ async fn approve_campaign(
 ) -> Result<Json<Campaign>, Status> {
     match service.approve_campaign(campaign_id).await {
         Ok(campaign) => Ok(Json(campaign)),
-        Err(AppError::NotFound(_)) => Err(Status::NotFound),
-        Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
-        Err(_) => Err(Status::InternalServerError),
-    }
-}
-
-#[delete("/campaigns/<campaign_id>")]
-async fn delete_campaign(
-    campaign_id: i32,
-    service: &State<Arc<CampaignService>>
-) -> Result<Status, Status> {
-    match service.delete_campaign(campaign_id).await {
-        Ok(_) => Ok(Status::NoContent),
         Err(AppError::NotFound(_)) => Err(Status::NotFound),
         Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
         Err(_) => Err(Status::InternalServerError),
