@@ -67,139 +67,259 @@ impl NotificationRepository for InMemoryNotificationRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::admin::notification::NotificationTargetType;
-    use chrono::Utc;
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
-    use tokio; // Ensure tokio is a dev-dependency for async tests
+    use crate::{db::get_test_pool};
+    use serial_test::serial;
 
-    // Mock implementation for testing the trait contract
-    struct MockNotificationRepository {
-        notifications: Arc<Mutex<HashMap<i32, Notification>>>,
-        next_id: Arc<Mutex<i32>>,
+    // We no longer use the static singleton
+    async fn create_test_repo() -> DbNotificationRepository {
+        let pool = get_test_pool().await;
+        reset_test_db(&pool).await.expect("Failed to setup test schema");
+        DbNotificationRepository { pool }
     }
 
-    impl MockNotificationRepository {
-        fn new() -> Self {
-            MockNotificationRepository {
-                notifications: Arc::new(Mutex::new(HashMap::new())),
-                next_id: Arc::new(Mutex::new(1)),
+    async fn reset_test_db(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+        let cleanup_result = sqlx::query(
+            "TRUNCATE TABLE notification_user, notification, announcement_subscription RESTART IDENTITY CASCADE"
+        ).execute(pool).await;
+        
+        // If TRUNCATE fails (tables don't exist), create them
+        if cleanup_result.is_err() {
+            let statements = vec![
+                "DROP TABLE IF EXISTS notification_user CASCADE",
+                "DROP TABLE IF EXISTS announcement_subscription CASCADE", 
+                "DROP TABLE IF EXISTS notification CASCADE",
+                r#"CREATE TABLE notification (
+                    id SERIAL PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    content VARCHAR(255) NOT NULL,
+                    created_at timestamp NOT NULL DEFAULT NOW(),
+                    target_type VARCHAR(255) NOT NULL
+                        DEFAULT 'AllUsers'
+                        CHECK (target_type IN (
+                            'AllUsers',
+                            'SpecificUser',
+                            'Fundraisers',
+                            'Donors',
+                            'NewCampaign'
+                        ))
+                )"#,
+                r#"CREATE TABLE announcement_subscription (
+                    user_email VARCHAR(255) NOT NULL PRIMARY KEY,
+                    start_at timestamp NOT NULL DEFAULT NOW()
+                )"#,
+                r#"CREATE TABLE notification_user (
+                    user_email VARCHAR(255) NOT NULL,
+                    announcement_id INT NOT NULL,
+                    created_at timestamp NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (user_email, announcement_id),
+                    FOREIGN KEY (announcement_id) REFERENCES notification(id) ON DELETE CASCADE
+                )"#,
+            ];
+
+            for statement in statements {
+                sqlx::query(statement).execute(pool).await?; // Run create schema if TRUNCATE fails
             }
         }
+
+        Ok(())
     }
 
-    #[async_trait]
-    impl NotificationRepository for MockNotificationRepository {
-        async fn create_notification(&self, request: &CreateNotificationRequest) -> Result<Notification, AppError> {
-            let mut notifications = self.notifications.lock().unwrap();
-            let mut next_id_guard = self.next_id.lock().unwrap();
-            let id = *next_id_guard;
-            *next_id_guard += 1;
+    async fn cleanup_test_data(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+        // Ensure each test cleans up its data
+        let _ = sqlx::query(
+            "TRUNCATE TABLE notification_user, notification, announcement_subscription RESTART IDENTITY CASCADE"
+        )
+        .execute(pool)
+        .await;
 
-            let notification = Notification {
-                id,
-                title: request.title.clone(),
-                content: request.content.clone(),
-                created_at: Utc::now(),
-                target_type: request.target_type.clone(),
-                target_id: request.target_id,
-            };
-            notifications.insert(id, notification.clone());
-            Ok(notification)
-        }
-
-        async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError> {
-            let notifications = self.notifications.lock().unwrap();
-            Ok(notifications.values().cloned().collect())
-        }
-
-        async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError> {
-            let notifications = self.notifications.lock().unwrap();
-            Ok(notifications.get(&notification_id).cloned())
-        }
-
-        async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError> {
-            let mut notifications = self.notifications.lock().unwrap();
-            Ok(notifications.remove(&notification_id).is_some())
-        }
+        Ok(())
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_create_and_get_notification() {
-        let repo = MockNotificationRepository::new();
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
         let request = CreateNotificationRequest {
             title: "Test Notification".to_string(),
             content: "This is a test.".to_string(),
             target_type: NotificationTargetType::AllUsers,
-            target_id: None,
+            adt_detail: None,
         };
 
-        let created_notification = repo.create_notification(&request).await.expect("Failed to create notification");
+        let created_notification = repo
+            .create_notification(&request)
+            .await
+            .expect("Failed to create notification");
+
         assert_eq!(created_notification.title, request.title);
         assert_eq!(created_notification.content, request.content);
         assert_eq!(created_notification.target_type, request.target_type);
-        assert!(created_notification.id > 0); // Should have a positive ID
+        assert!(created_notification.id > 0);
 
-        let fetched_notification = repo.get_notification_by_id(created_notification.id).await.expect("Failed to get notification");
+        let fetched_notification = repo
+            .get_notification_by_id(created_notification.id)
+            .await
+            .expect("Failed to get notification");
         assert!(fetched_notification.is_some());
         assert_eq!(fetched_notification.unwrap().id, created_notification.id);
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_get_non_existent_notification() {
-        let repo = MockNotificationRepository::new();
-        let fetched_notification = repo.get_notification_by_id(999).await.expect("Failed to get notification");
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
+        let fetched_notification = repo
+            .get_notification_by_id(999)
+            .await
+            .expect("Failed to get notification");
         assert!(fetched_notification.is_none());
     }
 
     #[tokio::test]
-    async fn test_get_all_notifications() {
-        let repo = MockNotificationRepository::new();
+    #[serial]
+    async fn test_create_and_get_all_notifications() {
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
         let request1 = CreateNotificationRequest {
             title: "Notification 1".to_string(),
             content: "Content 1".to_string(),
             target_type: NotificationTargetType::AllUsers,
-            target_id: None,
+            adt_detail: None,
         };
+
         let request2 = CreateNotificationRequest {
             title: "Notification 2".to_string(),
             content: "Content 2".to_string(),
             target_type: NotificationTargetType::Fundraisers,
-            target_id: None,
+            adt_detail: Some("1".to_string()),
         };
 
         repo.create_notification(&request1).await.unwrap();
         repo.create_notification(&request2).await.unwrap();
 
-        let all_notifications = repo.get_all_notifications().await.expect("Failed to get all notifications");
+        let all_notifications = repo
+            .get_all_notifications()
+            .await
+            .expect("Failed to get all notifications");
+        
         assert_eq!(all_notifications.len(), 2);
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_delete_notification() {
-        let repo = MockNotificationRepository::new();
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
         let request = CreateNotificationRequest {
             title: "To Be Deleted".to_string(),
             content: "Delete me".to_string(),
             target_type: NotificationTargetType::AllUsers,
-            target_id: None,
+            adt_detail: None,
         };
 
         let created_notification = repo.create_notification(&request).await.unwrap();
         let notification_id = created_notification.id;
 
-        // Ensure it exists
-        assert!(repo.get_notification_by_id(notification_id).await.unwrap().is_some());
+        assert!(
+            repo.get_notification_by_id(notification_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
 
-        // Delete it
-        let delete_result = repo.delete_notification(notification_id).await.expect("Failed to delete notification");
-        assert!(delete_result); // Should return true for successful deletion
+        let delete_result = repo
+            .delete_notification(notification_id)
+            .await
+            .expect("Failed to delete notification");
+        assert!(delete_result);
 
-        // Ensure it's gone
-        assert!(repo.get_notification_by_id(notification_id).await.unwrap().is_none());
+        assert!(
+            repo.get_notification_by_id(notification_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
 
-        // Try deleting again (should fail)
-        let delete_again_result = repo.delete_notification(notification_id).await.expect("Failed to delete non-existent notification");
-        assert!(!delete_again_result); // Should return false
+        let delete_again_result = repo
+            .delete_notification(notification_id)
+            .await
+            .expect("Failed to delete non-existent notification");
+        assert!(!delete_again_result);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_notification_validation() {
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
+        let request = CreateNotificationRequest {
+            title: "".to_string(), // Empty title to trigger validation error
+            content: "Content".to_string(),
+            target_type: NotificationTargetType::AllUsers,
+            adt_detail: None,
+        };
+
+        let result = repo.create_notification(&request).await;
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            AppError::ValidationError(msg)
+                => assert!(msg == "Title cannot be empty" || msg == "Content cannot be empty"),
+            _ => panic!("Expected ValidationError"),
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_push_notification() {
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
+        // Create subscription for user gregory@gmail.com
+        sqlx::query!(
+            "INSERT INTO announcement_subscription (user_email) VALUES ($1)",
+            "gregory@gmail.com".to_string(),
+        )
+        .execute(&repo.pool)
+        .await
+        .expect("Failed to create subscription for user");
+
+        // Create a notification that should be pushed to the user
+        let request = CreateNotificationRequest {
+            title: "Push Notification".to_string(),
+            content: "This notification should be pushed.".to_string(),
+            target_type: NotificationTargetType::NewCampaign,
+            adt_detail: None,
+        };
+
+        let created_notification = repo
+            .create_notification(&request)
+            .await
+            .expect("Failed to create notification");
+
+        let notification_id = created_notification.id;
+
+        // Check if the notification was pushed to the user
+        let user_notifications = repo
+            .get_notification_for_user("gregory@gmail.com".to_string())
+            .await
+            .expect("Failed to get user notifications");
+
+        assert!(!user_notifications.is_empty(), "User notifications should not be empty");
+        assert!(user_notifications.iter().any(|n| n.id == notification_id), "User notifications should contain the created notification");
+
+        // Check if the notification is also in the all notification list
+        let all_notifications = repo
+            .get_all_notifications()
+            .await
+            .expect("Failed to get all notifications");
+        assert!(!all_notifications.is_empty(), "All notifications should not be empty");
+        assert!(all_notifications.iter().any(|n| n.id == notification_id), "All notifications should contain the created notification");    
     }
 }
