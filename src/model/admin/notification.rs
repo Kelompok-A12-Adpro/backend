@@ -275,7 +275,7 @@ mod tests {
             title: "Valid Title".to_string(),
             content: "Valid Content".to_string(),
             target_type: NotificationTargetType::NewCampaign,
-            adt_detail: Some("owner@example.com".to_string()),
+            adt_detail: None,
         };
         assert!(validate_request(&valid_new_campaign).is_ok());
     }
