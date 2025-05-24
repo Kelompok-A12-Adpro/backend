@@ -19,6 +19,7 @@ serde_json = "1.0"
 dotenv = "0.15.0"
 dotenvy = "0.15"
 tokio = { version = "1.0", features = ["full"] }
+dotenvy = "0.15.7"
 auth = { path = "../auth" } #TODO: Adjust this later to the actual auth path during deployment.
 
 [dev-dependencies]
