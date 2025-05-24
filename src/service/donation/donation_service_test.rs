@@ -81,38 +81,53 @@ mod tests {
 
     #[tokio::test]
     async fn test_make_donation_success() {
-        let mut mock_donation_repo = MockTestDonationRepo::new(); // Use the generated mock name
-        let mut mock_campaign_repo = MockTestCampaignRepo::new(); // Use the generated mock name
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let donor_id = 1;
         let campaign_id = 10;
-        let amount = 50.0;
+        let donation_amount = 50.0;
+        let initial_collected_amount = 100.0; // Assuming campaign already had some donations
 
-        let campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
-        let campaign_clone = campaign.clone();
+        let mut campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
+        campaign.collected_amount = initial_collected_amount; // Set initial collected amount
+        let campaign_clone_for_get = campaign.clone();
 
         let expected_donation = Donation {
             id: 1, // Assumed ID from repo
             user_id: donor_id,
             campaign_id,
-            amount,
+            amount: donation_amount,
             message: None,
-            created_at: Utc::now(), // Actual value will come from mock
+            created_at: Utc::now(), // Actual value will come from mock, so this is for comparison structure
         };
         let expected_donation_clone = expected_donation.clone();
 
+        // 1. Expect get_campaign to be called and return an active campaign
         mock_campaign_repo
-            .expect_get_campaign() // Use the correct method name
+            .expect_get_campaign()
             .with(eq(campaign_id))
             .times(1)
-            .returning(move |_| Ok(Some(campaign_clone.clone())));
+            .returning(move |_| Ok(Some(campaign_clone_for_get.clone())));
 
+        // 2. Expect donation_repo.create to be called
         mock_donation_repo
             .expect_create()
             .withf(move |uid, req: &NewDonationRequest| {
-                *uid == donor_id && req.campaign_id == campaign_id && req.amount == amount && req.message.is_none()
+                *uid == donor_id && req.campaign_id == campaign_id && req.amount == donation_amount && req.message.is_none()
             })
             .times(1)
             .returning(move |_, _| Ok(expected_donation_clone.clone()));
+
+        // 3. Expect campaign_repo.update_campaign to be called with updated collected_amount
+        let expected_updated_collected_amount = initial_collected_amount + donation_amount;
+        mock_campaign_repo
+            .expect_update_campaign()
+            .withf(move |updated_campaign: &Campaign| {
+                updated_campaign.id == campaign_id &&
+                updated_campaign.collected_amount == expected_updated_collected_amount
+            })
+            .times(1)
+            .returning(|campaign_arg| Ok(campaign_arg.clone())); // Return the campaign passed to it, as if successfully updated
 
         let service =
             DonationService::new(Arc::new(mock_donation_repo), Arc::new(mock_campaign_repo));
@@ -120,16 +135,16 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id,
             campaign_id,
-            amount,
+            amount: donation_amount,
             message: None,
         };
         let result = service.make_donation(cmd).await;
 
-        assert!(result.is_ok());
-        let donation = result.unwrap();
-        assert_eq!(donation.id, expected_donation.id); // Compares the whole struct
-        assert_eq!(donation.user_id, donor_id);
-        assert_eq!(donation.amount, amount);
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result.err());
+        let donation_received = result.unwrap();
+        assert_eq!(donation_received.id, expected_donation.id);
+        assert_eq!(donation_received.user_id, donor_id);
+        assert_eq!(donation_received.amount, donation_amount);
     }
 
     #[tokio::test]
@@ -556,6 +571,112 @@ mod tests {
         match result.err().unwrap() {
             AppError::InvalidOperation(msg) => assert_eq!(msg, "Simulated DB Error on find_by_user"),
             e => panic!("Expected InvalidOperation, got {:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_make_donation_campaign_not_active() {
+        let mock_donation_repo = MockTestDonationRepo::new(); // Not expected to be called
+        let mut mock_campaign_repo = MockTestCampaignRepo::new();
+        let campaign_id = 10;
+
+        // Campaign is PendingVerification, not Active
+        let campaign = dummy_campaign(campaign_id, CampaignStatus::PendingVerification);
+
+        mock_campaign_repo
+            .expect_get_campaign()
+            .with(eq(campaign_id))
+            .times(1)
+            .returning(move |_| Ok(Some(campaign.clone())));
+
+        let service =
+            DonationService::new(Arc::new(mock_donation_repo), Arc::new(mock_campaign_repo));
+
+        let cmd = MakeDonationCommand {
+            donor_id: 1,
+            campaign_id,
+            amount: 50.0,
+            message: None,
+        };
+        let result = service.make_donation(cmd).await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            AppError::InvalidOperation(msg) => {
+                assert!(msg.contains("Donations can only be made to active campaigns"))
+            }
+            e => panic!("Expected InvalidOperation for non-active campaign, got {:?}", e),
+        }
+    }
+
+        #[tokio::test]
+    async fn test_make_donation_campaign_update_fails_after_donation_creation() {
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mut mock_campaign_repo = MockTestCampaignRepo::new();
+        let donor_id = 1;
+        let campaign_id = 10;
+        let donation_amount = 50.0;
+        let initial_collected_amount = 100.0;
+
+        let mut campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
+        campaign.collected_amount = initial_collected_amount;
+        let campaign_clone_for_get = campaign.clone();
+
+        let expected_donation = Donation {
+            id: 1,
+            user_id: donor_id,
+            campaign_id,
+            amount: donation_amount,
+            message: None,
+            created_at: Utc::now(),
+        };
+        let expected_donation_clone = expected_donation.clone();
+
+        // 1. Expect get_campaign to succeed
+        mock_campaign_repo
+            .expect_get_campaign()
+            .with(eq(campaign_id))
+            .times(1)
+            .returning(move |_| Ok(Some(campaign_clone_for_get.clone())));
+
+        // 2. Expect donation_repo.create to succeed
+        mock_donation_repo
+            .expect_create()
+            .withf(move |uid, req: &NewDonationRequest| {
+                *uid == donor_id && req.campaign_id == campaign_id && req.amount == donation_amount
+            })
+            .times(1)
+            .returning(move |_, _| Ok(expected_donation_clone.clone()));
+
+        // 3. Expect campaign_repo.update_campaign to FAIL
+        let expected_updated_collected_amount = initial_collected_amount + donation_amount;
+        mock_campaign_repo
+            .expect_update_campaign()
+            .withf(move |updated_campaign: &Campaign| {
+                updated_campaign.id == campaign_id &&
+                updated_campaign.collected_amount == expected_updated_collected_amount
+            })
+            .times(1)
+            .returning(|_| Err(AppError::DatabaseError("Simulated DB error on campaign update".to_string())));
+
+        let service =
+            DonationService::new(Arc::new(mock_donation_repo), Arc::new(mock_campaign_repo));
+
+        let cmd = MakeDonationCommand {
+            donor_id,
+            campaign_id,
+            amount: donation_amount,
+            message: None,
+        };
+        let result = service.make_donation(cmd).await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            AppError::InternalServerError(msg) => {
+                assert!(msg.contains(&format!("Donation created, but failed to update campaign (ID: {})", campaign_id)));
+                assert!(msg.contains("Simulated DB error on campaign update"));
+            }
+            e => panic!("Expected InternalServerError, got {:?}", e),
         }
     }
 }
