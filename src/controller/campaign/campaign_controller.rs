@@ -10,9 +10,10 @@ use crate::model::campaign::campaign::{Campaign, CampaignStatus};
 use crate::service::campaign::campaign_service::CampaignService;
 use crate::errors::AppError;
 
+use crate::controller::campaign::auth::AuthUser;
+
 #[derive(Deserialize)]
 pub struct CreateCampaignRequest {
-    pub user_id: i32,
     pub name: String,
     pub description: String,
     pub target_amount: f64,
@@ -35,10 +36,11 @@ pub struct UpdateCampaignRequest {
 #[post("/campaigns", format = "json", data = "<campaign_req>")]
 async fn create_campaign(
     campaign_req: Json<CreateCampaignRequest>,
+    user: AuthUser,
     service: &State<Arc<CampaignService>>
 ) -> Result<Created<Json<Campaign>>, Status> {
     let campaign = service.create_campaign(
-        campaign_req.user_id,
+        user.id,
         campaign_req.name.clone(),
         campaign_req.description.clone(),
         campaign_req.target_amount,
