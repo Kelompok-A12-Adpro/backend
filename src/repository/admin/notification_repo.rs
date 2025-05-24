@@ -1,66 +1,239 @@
-use async_trait::async_trait;
 use crate::errors::AppError;
-use crate::model::admin::notification::{Notification, NotificationTargetType, CreateNotificationRequest};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use crate::model::admin::notification::{
+    CreateNotificationRequest, Notification, NotificationTargetType, validate_request,
+};
+use async_trait::async_trait;
 use chrono::Utc;
 
 #[async_trait]
 pub trait NotificationRepository: Send + Sync {
     async fn create_notification(&self, notification: &CreateNotificationRequest) -> Result<Notification, AppError>;
+    async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<String>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError>;
     async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError>;
+    async fn get_notification_for_user(&self, user_email: String) -> Result<Vec<Notification>, AppError>;
     async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError>;
     async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError>;
 }
 
-// In-memory implementation
-pub struct InMemoryNotificationRepository {
-    notifications: Arc<Mutex<HashMap<i32, Notification>>>,
-    next_id: Arc<Mutex<i32>>,
+pub struct DbNotificationRepository {
+    pool: sqlx::PgPool,
 }
 
-impl InMemoryNotificationRepository {
-    pub fn new() -> Self {
-        InMemoryNotificationRepository {
-            notifications: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(Mutex::new(1)),
-        }
+impl DbNotificationRepository {
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        DbNotificationRepository { pool }
     }
 }
 
 #[async_trait]
-impl NotificationRepository for InMemoryNotificationRepository {
+impl NotificationRepository for DbNotificationRepository {
     async fn create_notification(&self, request: &CreateNotificationRequest) -> Result<Notification, AppError> {
-        let mut notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
-        let mut next_id_guard = self.next_id.lock().map_err(|_| AppError::InvalidOperation("Failed to lock next_id".to_string()))?;
-        let id = *next_id_guard;
-        *next_id_guard += 1;
+        // Validate the request
+        validate_request(request).map_err(|e| AppError::ValidationError(e))?;
 
+        // Create a new notification
         let notification = Notification {
-            id,
+            id: 0, // This will be set by the database
             title: request.title.clone(),
             content: request.content.clone(),
             created_at: Utc::now(),
             target_type: request.target_type.clone(),
-            target_id: request.target_id,
         };
-        notifications.insert(id, notification.clone());
-        Ok(notification)
+
+        // Insert into the database using a transaction
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        let result = sqlx::query!(
+            "INSERT INTO notification (title, content, created_at, target_type)
+            VALUES ($1, $2, $3, $4) RETURNING id",
+            notification.title,
+            notification.content,
+            notification.created_at.naive_utc(),
+            notification.target_type.to_string(),
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        let push = self.push_notification(
+            notification.target_type.clone(),
+            request.adt_detail.clone(),
+            result.id,
+            &mut tx
+        ).await;
+
+        if push.is_ok() && push.unwrap() {
+            tx.commit()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        } else {
+            tx.rollback()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            return Err(AppError::ValidationError("Failed to push notification".to_string()));
+        }
+
+        Ok(Notification {
+            id: result.id,
+            title: notification.title,
+            content: notification.content,
+            created_at: notification.created_at,
+            target_type: notification.target_type,
+        })
+    }
+
+    async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<String>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError> {
+        match target {
+            NotificationTargetType::AllUsers => {
+                // All users notification will always be fetched
+                Ok(true)
+            }
+            NotificationTargetType::SpecificUser => {
+                let _result = sqlx::query!(
+                    "INSERT INTO notification_user (user_email, announcement_id)
+                    VALUES ($1, $2)",
+                    adt_details.ok_or_else(|| AppError::ValidationError("User email is required for this target".to_string()))?,
+                    notification_id
+                )
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+                Ok(true)
+            }
+            NotificationTargetType::Fundraisers => {
+                // implement later after database ready
+                Ok(true)
+            }
+            NotificationTargetType::Donors => {
+                // implement later after database ready
+                Ok(true)
+            }
+            NotificationTargetType::NewCampaign => {
+                let _result = sqlx::query!(
+                    "INSERT INTO notification_user (user_email, announcement_id)
+                    SELECT user_email, $1 FROM announcement_subscription",
+                    notification_id
+                )
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+                Ok(true)
+            }
+            _ => Err(AppError::ValidationError("Unsupported target type".to_string()))
+        }
     }
 
     async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError> {
-        let notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
-        Ok(notifications.values().cloned().collect())
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        let notifications = sqlx::query!(
+            "SELECT * FROM notification"
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .into_iter()
+        .map(|row| Notification {
+            id: row.id,
+            title: row.title,
+            content: row.content,
+            created_at: row.created_at.and_utc(),
+            target_type: NotificationTargetType::from_string(
+                &row.target_type
+            ).unwrap_or(NotificationTargetType::AllUsers),
+        })
+        .collect();
+
+        Ok(notifications)
     }
 
-    async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError> {
-        let notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
-        Ok(notifications.get(&notification_id).cloned())
+    async fn get_notification_for_user(&self, user_email: String) -> Result<Vec<Notification>, AppError> {
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        
+        let notifications = sqlx::query!(
+            "SELECT * FROM notification
+                WHERE target_type = $1 OR notification.id IN (
+                    SELECT announcement_id
+                    FROM notification_user 
+                    WHERE user_email = $2)",
+            NotificationTargetType::AllUsers.to_string(),
+            user_email
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .into_iter()
+        .map(|row| Notification {
+            id: row.id,
+            title: row.title,
+            content: row.content,
+            created_at: row.created_at.and_utc(),
+            target_type: NotificationTargetType::from_string(
+                &row.target_type
+            ).unwrap_or(NotificationTargetType::AllUsers),
+        })
+        .collect();
+
+        Ok(notifications)
+    }
+
+    async fn get_notification_by_id(
+        &self,
+        notification_id: i32,
+    ) -> Result<Option<Notification>, AppError> {
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        
+        let notification = sqlx::query!(
+            "SELECT * FROM notification WHERE id = $1",
+            notification_id
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .map(|row| Notification {
+            id: row.id,
+            title: row.title,
+            content: row.content,
+            created_at: row.created_at.and_utc(),
+            target_type: NotificationTargetType::from_string(
+                &row.target_type
+            ).unwrap_or(NotificationTargetType::AllUsers),
+        });
+
+        Ok(notification)
     }
 
     async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError> {
-        let mut notifications = self.notifications.lock().map_err(|_| AppError::InvalidOperation("Failed to lock notifications map".to_string()))?;
-        Ok(notifications.remove(&notification_id).is_some())
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        let result = sqlx::query!("DELETE FROM notification WHERE id = $1", notification_id)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result.rows_affected() > 0)
     }
 }
 
