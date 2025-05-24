@@ -12,6 +12,8 @@ use backend::{
     db,
 };
 
+use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
+
 #[get("/")]
 fn index() -> &'static str {
     "Hello, everynyan!"
@@ -27,6 +29,20 @@ async fn rocket() -> _ {
     // Initialize environment variables (if using dotenv)
     dotenv::dotenv().ok();
     
+    // CORS Configuration
+    let cors = CorsOptions::default()
+        .allowed_origins(AllowedOrigins::all())
+        .allowed_methods(
+            vec!["Get", "Post", "Put", "Delete"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+        )
+        .allowed_headers(AllowedHeaders::all())
+        .allow_credentials(true)
+        .to_cors()
+        .expect("CORS configuration error");
+
     // Initialize the database pool singleton
     let pool = db::init_pool().await;
 
@@ -41,4 +57,5 @@ async fn rocket() -> _ {
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
         .manage_state(app_state)
+        .attach(cors)
 }
