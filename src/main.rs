@@ -24,10 +24,11 @@ fn not_found(req: &rocket::Request<'_>) -> String {
 #[launch]
 async fn rocket() -> _ {
     // Initialize environment variables (if using dotenv)
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok(); //dotenvy is newer version of dotenc
     
     // Initialize the database pool singleton
     let pool = db::init_pool().await;
+    println!("Database pool initialized.");
 
     // Initialize all application state
     let app_state = backend::state::init_state(pool).await;
@@ -35,7 +36,7 @@ async fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/admin", admin_routes())
-        .mount("/[campaign_id_placeholder]/donation", donation_routes())
+        .mount("/<campaign_id_placeholder>/donation", donation_routes())
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
         .manage_state(app_state)
