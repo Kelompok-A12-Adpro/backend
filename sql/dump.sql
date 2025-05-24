@@ -30,7 +30,7 @@ $$;
 \c gatherlove_test;
 
 -- Include test migrations
-\i sql/test_migrations/migrate.sql
+\i sql/migrations/migrate.sql
 
 -- Finish
 \! echo '\033[1;32mDatabase successfully migrated\033[0m';
