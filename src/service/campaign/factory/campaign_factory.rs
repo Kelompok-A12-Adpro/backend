@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use crate::model::campaign::campaign::{Campaign, CampaignStatus};
 
 pub struct CampaignFactory;
@@ -14,6 +14,9 @@ impl CampaignFactory {
         name: String,
         description: String,
         target_amount: f64,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+        image_url: Option<String>,
     ) -> Campaign {
         let now = Utc::now();
         
@@ -25,6 +28,9 @@ impl CampaignFactory {
             target_amount,
             collected_amount: 0.0,
             status: CampaignStatus::PendingVerification,
+            start_date,
+            end_date,
+            image_url,
             created_at: now,
             updated_at: now,
             evidence_url: None,

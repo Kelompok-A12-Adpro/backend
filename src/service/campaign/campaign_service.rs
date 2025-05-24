@@ -28,8 +28,11 @@ impl CampaignService {
         name: String,
         description: String,
         target_amount: f64,
+        start_date: chrono::DateTime<chrono::Utc>,
+        end_date: chrono::DateTime<chrono::Utc>,
+        image_url: Option<String>,
     ) -> Result<Campaign, AppError> {
-        let campaign = self.factory.create_campaign(user_id, name, description, target_amount);
+        let campaign = self.factory.create_campaign(user_id, name, description, target_amount, start_date, end_date, image_url);
         self.repository.create_campaign(campaign).await
     }
 
@@ -40,12 +43,14 @@ impl CampaignService {
         name: Option<String>,
         description: Option<String>,
         target_amount: Option<f64>,
+        end_date: Option<chrono::DateTime<chrono::Utc>>,
+        image_url: Option<String>,
     ) -> Result<Campaign, AppError> {
         // Fetch existing campaign
         let mut campaign = self.fetch_or_404(id).await?;
         
         // Check if user owns the campaign
-        if campaign.user_id != user_id {
+        if campaign.user_id != user_id { // TODO: Change variabel user_id to check against the user_id of the authenticated user
             return Err(AppError::InvalidOperation("User not authorized to update this campaign".to_string()));
         }
         
@@ -62,7 +67,13 @@ impl CampaignService {
                 if let Some(new_target) = target_amount {
                     campaign.target_amount = new_target;
                 }
-                
+                if let Some(new_end_date) = end_date {
+                    campaign.end_date = new_end_date;
+                }
+                if let Some(new_image_url) = image_url {
+                    campaign.image_url = Some(new_image_url);
+                }
+    
                 // Update in repository
                 self.repository.update_campaign(campaign).await
             },
@@ -96,6 +107,10 @@ impl CampaignService {
             Some(c) => c,
             None => return Err(AppError::NotFound(format!("Campaign with id {} not found", id))),
         };
+
+        if campaign.user_id != id { // TODO: Change variabel user_id to check against the user_id of the authenticated user
+            return Err(AppError::InvalidOperation("User not authorized to delete this campaign".to_string()));
+        }
         
         // Only allow deletion if campaign is in Pending or Rejected status
         match campaign.status {

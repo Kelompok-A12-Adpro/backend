@@ -17,9 +17,13 @@ pub struct Campaign {
     pub description: String,
     pub target_amount: f64,
     pub collected_amount: f64,
-    pub status: CampaignStatus,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub start_date: DateTime<Utc>,
+    pub end_date: DateTime<Utc>,
+    pub image_url: Option<String>,
     pub evidence_url: Option<String>,
     pub evidence_uploaded_at: Option<DateTime<Utc>>,
+    pub status: CampaignStatus,
+    
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

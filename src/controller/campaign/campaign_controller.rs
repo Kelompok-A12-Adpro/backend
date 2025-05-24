@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use rocket::{State, get, post, put, delete, routes, uri};
 use rocket::serde::json::Json;
 use rocket::http::Status;
@@ -15,6 +16,9 @@ pub struct CreateCampaignRequest {
     pub name: String,
     pub description: String,
     pub target_amount: f64,
+    pub start_date: DateTime<Utc>,
+    pub end_date: DateTime<Utc>,
+    pub image_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -23,6 +27,9 @@ pub struct UpdateCampaignRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub target_amount: Option<f64>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub image_url: Option<String>,
+
 }
 
 #[post("/campaigns", format = "json", data = "<campaign_req>")]
@@ -35,6 +42,9 @@ async fn create_campaign(
         campaign_req.name.clone(),
         campaign_req.description.clone(),
         campaign_req.target_amount,
+        campaign_req.start_date,
+        campaign_req.end_date,
+        campaign_req.image_url.clone(),
     ).await.map_err(|_| Status::InternalServerError)?;
 
     // generate the correct URI, including any mount‐point (e.g. "/api")
@@ -55,6 +65,8 @@ async fn update_campaign(
         update_req.name.clone(),
         update_req.description.clone(),
         update_req.target_amount,
+        update_req.end_date,
+        update_req.image_url.clone(),
     ).await {
         Ok(campaign) => Ok(Json(campaign)),
         Err(AppError::NotFound(_)) => Err(Status::NotFound),
