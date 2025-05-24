@@ -1,4 +1,5 @@
 -- Drop the table if it exists to ensure a clean slate (as per instructions)
+\! echo '\033[33mMigrating Donations Database\033[0m';
 DROP TABLE IF EXISTS donations CASCADE; -- Use CASCADE if other tables reference it
 
 -- Create the donations table
@@ -8,7 +9,7 @@ CREATE TABLE donations (
     campaign_id INT NOT NULL,                       -- Corresponds to pub campaign_id: i32
     amount DOUBLE PRECISION NOT NULL,               -- Corresponds to pub amount: f64
     message TEXT,                                   -- Corresponds to pub message: Option<String>
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, -- Corresponds to pub created_at: DateTime<Utc>
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP -- Corresponds to pub created_at: DateTime<Utc>
 
     -- Optional: Add foreign key constraints if users and campaigns tables exist
     -- CONSTRAINT fk_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
