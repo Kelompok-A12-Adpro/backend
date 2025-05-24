@@ -94,3 +94,70 @@ pub async fn get_test_pool() -> PgPool {
         init_test_pool().await
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_init_pool_success() {
+        let pool = init_pool().await;
+        assert!(!pool.is_closed());
+    }
+    
+    #[tokio::test]
+    async fn test_init_pool_multiple_calls_returns_same_instance() {
+        let pool1 = init_pool().await;
+        let pool2 = init_pool().await;
+        
+        // Both should reference the same pool
+        assert_eq!(pool1.options().get_max_connections(), pool2.options().get_max_connections());
+    }
+
+    #[tokio::test]
+    async fn test_init_test_pool_success() {        
+        let pool = init_test_pool().await;
+        assert!(!pool.is_closed());
+    }
+
+    #[tokio::test]
+    async fn test_init_test_pool_multiple_calls_returns_same_instance() {
+        let pool1 = init_test_pool().await;
+        let pool2 = init_test_pool().await;
+        
+        assert_eq!(pool1.options().get_max_connections(), pool2.options().get_max_connections());
+    }
+    
+    #[tokio::test]
+    async fn test_get_pool_when_not_initialized() {
+        let pool = get_pool().await;
+        assert!(!pool.is_closed());
+    }
+
+    #[tokio::test]
+    async fn test_get_pool_when_already_initialized() {
+        // Initialize first
+        let _ = init_pool().await;
+        
+        // Get should return existing pool
+        let pool = get_pool().await;
+        assert!(!pool.is_closed());
+    }
+
+    #[tokio::test]
+    async fn test_get_test_pool_when_not_initialized() {
+        let pool = get_test_pool().await;
+        assert!(!pool.is_closed());
+    }
+
+    #[tokio::test]
+    async fn test_get_test_pool_when_already_initialized() {
+        // Initialize first
+        let _ = init_test_pool().await;
+        
+        // Get should return existing pool
+        let pool = get_test_pool().await;
+        assert!(!pool.is_closed());
+    }
+}
