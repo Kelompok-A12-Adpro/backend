@@ -17,9 +17,8 @@ async-trait = "0.1.88"
 thiserror = "2.0.12"
 serde_json = "1.0"
 dotenv = "0.15.0"
-dotenvy = "0.15"
-tokio = { version = "1.0", features = ["full"] }
 dotenvy = "0.15.7"
+tokio = { version = "1.0", features = ["full"] }
 auth = { path = "../auth" } #TODO: Adjust this later to the actual auth path during deployment.
 
 [dev-dependencies]
