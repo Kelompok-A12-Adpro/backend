@@ -24,10 +24,11 @@ fn not_found(req: &rocket::Request<'_>) -> String {
 #[launch]
 async fn rocket() -> _ {
     // Initialize environment variables (if using dotenv)
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok(); //dotenvy is newer version of dotenc
     
     // Initialize the database pool singleton
     let pool = db::init_pool().await;
+    println!("Database pool initialized.");
 
     // Initialize all application state
     let app_state = backend::state::init_state(pool).await;

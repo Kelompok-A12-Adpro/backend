@@ -25,6 +25,9 @@ pub enum AppError {
     
     #[error("Database error: {0}")]
     DatabaseError(String),
+
+    #[error("Database constraint violation: {0}")]
+    DatabaseConstraintViolation(String),
 }
 
 #[rocket::async_trait]
@@ -38,6 +41,11 @@ impl<'r> Responder<'r, 'static> for AppError {
             AppError::InvalidOperation(msg) => (Status::BadRequest, msg),
             AppError::JsonParseError(msg) => (Status::BadRequest, msg),
             AppError::DatabaseError(msg) => (Status::InternalServerError, msg),
+             AppError::DatabaseConstraintViolation(msg) => {
+                // Log the specific constraint violation server-side for debugging if needed
+                // eprintln!("Database Constraint Violation: {}", msg);
+                (Status::Conflict, msg) // HTTP 409 Conflict is good for this
+            }
         };
 
         // Create the JSON body
