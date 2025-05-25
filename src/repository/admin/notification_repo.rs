@@ -7,6 +7,7 @@ use chrono::Utc;
 
 #[async_trait]
 pub trait NotificationRepository: Send + Sync {
+    async fn begin_transaction(&self) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, AppError>;
     async fn create_notification(&self, notification: &CreateNotificationRequest, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<Notification, AppError>;
     async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<String>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError>;
     async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError>;
@@ -28,6 +29,10 @@ impl DbNotificationRepository {
 
 #[async_trait]
 impl NotificationRepository for DbNotificationRepository {
+    async fn begin_transaction(&self) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, AppError> {
+        self.pool.begin().await.map_err(|e| AppError::DatabaseError(e.to_string()))
+    }
+
     async fn create_notification(&self, request: &CreateNotificationRequest, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<Notification, AppError> {
         // Validate the request
         validate_request(request).map_err(|e| AppError::ValidationError(e))?;
