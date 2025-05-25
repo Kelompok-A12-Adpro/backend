@@ -1,89 +1,210 @@
+use crate::controller::auth::auth::AuthUser;
 use crate::errors::AppError;
-use crate::model::admin::notification::{CreateNotificationRequest, NotificationTargetType, Notification};
+use crate::model::admin::notification::{
+    CreateNotificationRequest, Notification,
+};
+use crate::service::notification::notification_service::NotificationService;
 use rocket::serde::json::Json;
-use rocket::{catch, delete, get, post, routes};
-use std::sync::atomic::{AtomicI32, Ordering};
-
-// Static counter for generating notification IDs
-static NEXT_ID: AtomicI32 = AtomicI32::new(1);
+use rocket::{catch, delete, get, post, routes, State};
+use serde::{Deserialize, Serialize};
 
 #[catch(422)]
 fn json_parse_error(req: &rocket::Request<'_>) -> AppError {
-    AppError::JsonParseError("Failed to parse JSON".to_string())
+    AppError::JsonParseError(format!(
+        "Invalid JSON payload received at {} {}. Please check your JSON syntax and structure.",
+        req.method(),
+        req.uri().path()
+    ))
 }
 
-// Placeholder for simplified controllers
-#[get("/notifications")]
-fn get_notifications() -> Json<Vec<Notification>> {
-    Json(vec![
-        Notification {
-            id: 1,
-            title: "Welcome".to_string(),
-            content: "Welcome to the platform!".to_string(),
-            created_at: chrono::Utc::now(),
-            target_type: NotificationTargetType::AllUsers,
-            target_id: None,
-        },
-        Notification {
-            id: 2,
-            title: "System Update".to_string(),
-            content: "System maintenance scheduled".to_string(),
-            created_at: chrono::Utc::now(),
-            target_type: NotificationTargetType::AllUsers,
-            target_id: None,
-        }
-    ])
+#[derive(Serialize, Deserialize)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    pub message: String,
+    pub data: Option<T>,
 }
 
-#[post("/notifications", format = "json", data = "<notification_req>")]
-fn create_notification(
-    notification_req: Json<CreateNotificationRequest>,
-) -> Result<Json<Notification>, AppError> {
-    // Simple validation
-    if notification_req.title.is_empty() || notification_req.content.is_empty() {
-        return Err(AppError::ValidationError(
-            "Title and content cannot be empty".to_string(),
-        ));
-    }
-
-    if notification_req.target_type == NotificationTargetType::SpecificUser
-        && notification_req.target_id.is_none()
-    {
-        return Err(AppError::ValidationError(
-            "target_id is required for SpecificUser".to_string(),
-        ));
-    } else if (notification_req.target_type == NotificationTargetType::AllUsers
-        || notification_req.target_type == NotificationTargetType::Fundraisers)
-        && notification_req.target_id.is_some()
-    {
-        return Err(AppError::ValidationError(
-            "target_id must be None for AllUsers or Fundraisers".to_string(),
-        ));
-    }
-
-    let notification = Notification {
-        id: NEXT_ID.fetch_add(1, Ordering::SeqCst),
-        title: notification_req.title.clone(),
-        content: notification_req.content.clone(),
-        created_at: chrono::Utc::now(),
-        target_type: notification_req.target_type.clone(),
-        target_id: notification_req.target_id,
-    };
-
-    Ok(Json(notification))
-}
-
-#[delete("/notifications/<_notification_id>")]
-fn delete_notification(_notification_id: i32) -> Result<(), AppError> {
-    if _notification_id < 1 {
-        return Err(AppError::NotFound("Notification not found".to_string()));
+fn admin_check(auth_user: AuthUser) -> Result<(), AppError> {
+    if !auth_user.is_admin {
+        return Err(AppError::Unauthorized);
     }
 
     Ok(())
 }
 
-pub fn routes() -> Vec<rocket::Route> {
-    routes![get_notifications, create_notification, delete_notification]
+
+//////////////////////
+///// Admin Side /////
+//////////////////////
+
+#[get("/notifications")]
+async fn get_notifications_admin(
+    auth_user: AuthUser,
+    service: &State<NotificationService>,
+) -> Result<Json<ApiResponse<Vec<Notification>>>, AppError> {
+    admin_check(auth_user)?;
+
+    let notifications = service.get_all_notifications().await.unwrap_or_default();
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Notifications retrieved successfully".to_string(),
+        data: Some(notifications),
+    }))
+}
+
+#[post("/notifications", format = "json", data = "<notification_data>")]
+async fn create_notification(
+    auth_user: AuthUser,
+    notification_data: Json<CreateNotificationRequest>,
+    service: &State<NotificationService>,
+) -> Result<Json<ApiResponse<Notification>>, AppError> {
+    admin_check(auth_user)?;
+
+    let request = notification_data.into_inner();
+
+    if request.title.is_empty() || request.content.is_empty() {
+        return Err(AppError::InvalidOperation(
+            "Title and content cannot be empty".to_string(),
+        ));
+    }
+
+    let notification = service
+        .notify(request)
+        .await
+        .map_err(|e| AppError::InternalServerError(e.to_string()))?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Notification created successfully".to_string(),
+        data: Some(notification),
+    }))
+}
+
+#[delete("/notifications/<notification_id>")]
+async fn delete_notification(
+    auth_user: AuthUser,
+    service: &State<NotificationService>,
+    notification_id: i32,
+) -> Result<Json<ApiResponse<String>>, AppError> {
+    admin_check(auth_user)?;
+
+    service
+        .delete_notification(notification_id)
+        .await
+        .map_err(|_| AppError::NotFound(format!(
+            "Notification with ID {} not found",
+            notification_id
+        )))?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Notification deleted successfully".to_string(),
+        data: None,
+    }))
+}
+
+
+/////////////////////
+///// User Side /////
+/////////////////////
+
+#[get("/notifications")]
+async fn get_notifications(
+    auth_user: AuthUser,
+    service: &State<NotificationService>,
+) -> Json<ApiResponse<Vec<Notification>>> {
+    let notifications = service
+        .get_notifications_for_user(auth_user.email)
+        .await
+        .unwrap_or_default();
+
+    Json(ApiResponse {
+        success: true,
+        message: "Notifications retrieved successfully".to_string(),
+        data: Some(notifications),
+    })
+}
+
+#[post("/subscribe", format = "json")]
+async fn subscribe_to_notification(
+    auth_user: AuthUser,
+    service: &State<NotificationService>,
+) -> Json<ApiResponse<String>> {
+    let user_email = auth_user.email.clone();
+
+    match service.subscribe(user_email).await {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            message: "Subscribed successfully".to_string(),
+            data: None,
+        }),
+        Err(_) => Json(ApiResponse {
+            success: false,
+            message: "Failed to subscribe".to_string(),
+            data: None,
+        }),
+    }
+}
+
+#[post("/unsubscribe", format = "json")]
+async fn unsubscribe_from_notification(
+    auth_user: AuthUser,
+    service: &State<NotificationService>,
+) -> Json<ApiResponse<String>> {
+    let user_email = auth_user.email.clone();
+
+    match service.unsubscribe(user_email).await {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            message: "Unsubscribed successfully".to_string(),
+            data: None,
+        }),
+        Err(_) => Json(ApiResponse {
+            success: false,
+            message: "Failed to unsubscribe".to_string(),
+            data: None,
+        }),
+    }
+}
+
+#[delete("/notifications/<notification_id>")]
+async fn delete_notification_user(
+    auth_user: AuthUser,
+    service: &State<NotificationService>,
+    notification_id: i32,
+) -> Json<ApiResponse<String>> {
+    service
+        .delete_notification_for_user(notification_id, auth_user.email)
+        .await
+        .map_err(|_| {
+            AppError::NotFound(format!(
+                "Notification with ID {} not found",
+                notification_id
+            ))
+        });
+
+    Json(ApiResponse {
+        success: true,
+        message: "Notification deleted successfully".to_string(),
+        data: None,
+    })
+}
+
+pub fn user_routes() -> Vec<rocket::Route> {
+    routes![
+        get_notifications,
+        subscribe_to_notification,
+        unsubscribe_from_notification,
+        delete_notification_user
+    ]
+}
+
+pub fn admin_routes() -> Vec<rocket::Route> {
+    routes![
+        get_notifications_admin,
+        create_notification,
+        delete_notification
+    ]
 }
 
 pub fn catchers() -> Vec<rocket::Catcher> {
