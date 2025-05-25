@@ -683,4 +683,22 @@ mod tests {
             "Notification should still exist after user deletion"
         );
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_begin_transaction() {
+        let repo = create_test_repo().await;
+        cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
+
+        let mut tx = repo.begin_transaction().await.expect("Failed to begin transaction");
+
+        let result = sqlx::query!("SELECT 1 as dummy")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("Failed to execute query in transaction");
+        assert_eq!(result.dummy, Some(1), "Transaction should execute query successfully");
+
+        // Commit the transaction
+        tx.commit().await.expect("Failed to commit transaction");
+    }
 }
