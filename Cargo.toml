@@ -11,7 +11,8 @@ sqlx = { version = "0.8.3", features = [
     "runtime-tokio-rustls",  # Add this feature
     "postgres",
     "chrono",
-    "json"
+    "json",
+    "bigdecimal"
 ] }
 chrono = { version = "0.4.40", features = ["serde"] }
 async-trait = "0.1.88"

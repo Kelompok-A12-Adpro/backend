@@ -16,7 +16,7 @@ use crate::controller::campaign::auth::AuthUser;
 pub struct CreateCampaignRequest {
     pub name: String,
     pub description: String,
-    pub target_amount: f64,
+    pub target_amount: i64,
     pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
     pub image_url: Option<String>,
@@ -26,7 +26,7 @@ pub struct CreateCampaignRequest {
 pub struct UpdateCampaignRequest {
     pub name: Option<String>,
     pub description: Option<String>,
-    pub target_amount: Option<f64>,
+    pub target_amount: Option<i64>,
     pub end_date: Option<DateTime<Utc>>,
     pub image_url: Option<String>,
 

@@ -27,6 +27,15 @@ pub enum AppError {
     DatabaseError(String),
 }
 
+impl From<sqlx::Error> for AppError {
+    fn from(err: sqlx::Error) -> Self {
+        match err {
+            sqlx::Error::RowNotFound => AppError::NotFound("Record not found".to_string()),
+            _ => AppError::DatabaseError(err.to_string()),
+        }
+    }
+}
+
 #[rocket::async_trait]
 impl<'r> Responder<'r, 'static> for AppError {
     fn respond_to(self, _req: &'r Request<'_>) -> rocket::response::Result<'static> {

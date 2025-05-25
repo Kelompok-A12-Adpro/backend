@@ -27,7 +27,7 @@ impl CampaignService {
         user_id: i32,
         name: String,
         description: String,
-        target_amount: f64,
+        target_amount: i64,
         start_date: chrono::DateTime<chrono::Utc>,
         end_date: chrono::DateTime<chrono::Utc>,
         image_url: Option<String>,
@@ -42,7 +42,7 @@ impl CampaignService {
         user_id: i32,
         name: Option<String>,
         description: Option<String>,
-        target_amount: Option<f64>,
+        target_amount: Option<i64>,
         end_date: Option<chrono::DateTime<chrono::Utc>>,
         image_url: Option<String>,
     ) -> Result<Campaign, AppError> {

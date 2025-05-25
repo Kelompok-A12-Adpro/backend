@@ -3,12 +3,13 @@ use rocket::{Rocket, Build};
 use sqlx::PgPool;
 
 use crate::repository::admin::statistics_repo::DbStatisticsRepository;
-use crate::repository::campaign::campaign_repository::InMemoryCampaignRepository;
 use crate::repository::donation::donation_repository::PgDonationRepository;
+use crate::repository::campaign::campaign_repository::PgCampaignRepository;
 use crate::service::admin::platform_statistics_service::PlatformStatisticsService;
 use crate::service::donation::donation_service::DonationService;
 use crate::service::campaign::campaign_service::CampaignService;
 use crate::service::campaign::factory::campaign_factory::CampaignFactory;
+
 // TODO: Import other repositories if yours need shared state
 
 pub struct AppState {
@@ -24,7 +25,7 @@ pub async fn init_state(pool: PgPool) -> AppState {
 
     // Repos
     let donation_repo = Arc::new(PgDonationRepository::new(pool.clone()));
-    let campaign_repo = Arc::new(InMemoryCampaignRepository::new());
+    let campaign_repo = Arc::new(PgCampaignRepository::new(pool.clone()));
     let dashboard_repo = Arc::new(DbStatisticsRepository::new());
 
     // Services
