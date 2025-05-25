@@ -259,8 +259,39 @@ impl NotificationRepository for DbNotificationRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::get_test_pool};
+    use crate::db::get_test_pool;
     use serial_test::serial;
+
+    fn get_query_for_target_type<'a>(
+        target_type: &'a NotificationTargetType,
+        notification_id: i32,
+        adt_details: Option<&'a str>,
+    ) -> Result<Option<sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments>>, AppError>
+    {
+        match target_type {
+            NotificationTargetType::AllUsers => Ok(None),
+            NotificationTargetType::Fundraisers => Ok(None),
+            NotificationTargetType::Donors => Ok(None),
+            NotificationTargetType::NewCampaign => Ok(Some(sqlx::query!(
+                "INSERT INTO notification_user (user_email, announcement_id)
+                    SELECT user_email, $1 FROM announcement_subscription",
+                notification_id
+            ))),
+            NotificationTargetType::SpecificUser => {
+                let user_email = adt_details.ok_or_else(|| {
+                    AppError::ValidationError(
+                        "User email is required for specific user target".to_string(),
+                    )
+                })?;
+                Ok(Some(sqlx::query!(
+                    "INSERT INTO notification_user (user_email, announcement_id)
+                    VALUES ($1, $2)",
+                    user_email,
+                    notification_id
+                )))
+            }
+        }
+    }
 
     // We no longer use the static singleton
     async fn create_test_repo() -> DbNotificationRepository {
@@ -273,12 +304,12 @@ mod tests {
         let cleanup_result = sqlx::query(
             "TRUNCATE TABLE notification_user, notification, announcement_subscription RESTART IDENTITY CASCADE"
         ).execute(pool).await;
-        
+
         // If TRUNCATE fails (tables don't exist), create them
         if cleanup_result.is_err() {
             let statements = vec![
                 "DROP TABLE IF EXISTS notification_user CASCADE",
-                "DROP TABLE IF EXISTS announcement_subscription CASCADE", 
+                "DROP TABLE IF EXISTS announcement_subscription CASCADE",
                 "DROP TABLE IF EXISTS notification CASCADE",
                 r#"CREATE TABLE notification (
                     id SERIAL PRIMARY KEY,
@@ -340,15 +371,31 @@ mod tests {
             adt_detail: None,
         };
 
+        let mut tx = repo.pool.begin().await.expect("Failed to begin transaction");
+
         let created_notification = repo
-            .create_notification(&request)
+            .create_notification(&request, &mut tx)
             .await
             .expect("Failed to create notification");
+
+        let push_result = repo
+            .push_notification(
+                request.target_type.clone(),
+                request.adt_detail.clone(),
+                created_notification.id,
+                &mut tx,
+            )
+            .await
+            .expect("Failed to push notification");
 
         assert_eq!(created_notification.title, request.title);
         assert_eq!(created_notification.content, request.content);
         assert_eq!(created_notification.target_type, request.target_type);
         assert!(created_notification.id > 0);
+
+        assert!(push_result, "Notification should be pushed successfully");
+        
+        tx.commit().await.expect("Failed to commit transaction");
 
         let fetched_notification = repo
             .get_notification_by_id(created_notification.id)
@@ -391,8 +438,25 @@ mod tests {
             adt_detail: Some("1".to_string()),
         };
 
-        repo.create_notification(&request1).await.unwrap();
-        repo.create_notification(&request2).await.unwrap();
+        let mut tx1 = repo.pool.begin().await.expect("Failed to begin transaction");
+        let created1 = repo.create_notification(&request1, &mut tx1).await.unwrap();
+        repo.push_notification(
+            request1.target_type.clone(),
+            request1.adt_detail.clone(),
+            created1.id,
+            &mut tx1,
+        ).await.unwrap();
+        tx1.commit().await.expect("Failed to commit transaction");
+
+        let mut tx2 = repo.pool.begin().await.expect("Failed to begin transaction");
+        let created2 = repo.create_notification(&request2, &mut tx2).await.unwrap();
+        repo.push_notification(
+            request2.target_type.clone(),
+            request2.adt_detail.clone(),
+            created2.id,
+            &mut tx2,
+        ).await.unwrap();
+        tx2.commit().await.expect("Failed to commit transaction");
 
         let all_notifications = repo
             .get_all_notifications()
@@ -415,7 +479,23 @@ mod tests {
             adt_detail: Some("greg@gmail.com".to_string()),
         };
 
-        let created_notification = repo.create_notification(&request).await.unwrap();
+        let mut tx = repo.pool.begin().await.expect("Failed to begin transaction");
+
+        let created_notification = repo.create_notification(&request, &mut tx).await.unwrap();
+
+        let push_result = repo
+            .push_notification(
+                request.target_type.clone(),
+                request.adt_detail.clone(),
+                created_notification.id,
+                &mut tx,
+            )
+            .await
+            .expect("Failed to push notification");
+        assert!(push_result, "Notification should be pushed successfully");
+
+        tx.commit().await.expect("Failed to commit transaction");
+
         let notification_id = created_notification.id;
 
         assert!(
@@ -449,7 +529,10 @@ mod tests {
             .get_notification_for_user("greg@gmail.com".to_string())
             .await
             .expect("Failed to get user notifications");
-        assert!(user_notifications.is_empty(), "User notifications should be empty after deletion");
+        assert!(
+            user_notifications.is_empty(),
+            "User notifications should be empty after deletion"
+        );
     }
 
     #[tokio::test]
@@ -465,13 +548,28 @@ mod tests {
             adt_detail: None,
         };
 
-        let result = repo.create_notification(&request).await;
+        let mut tx = repo.pool.begin().await.expect("Failed to begin transaction");
+        let result = repo.create_notification(&request, &mut tx).await;
+        let push_result = repo
+            .push_notification(
+                request.target_type.clone(),
+                request.adt_detail.clone(),
+                0, // No notification created due to validation error
+                &mut tx,
+            )
+            .await;
+
         assert!(result.is_err());
+        assert!(push_result.is_err());
+        
         match result.err().unwrap() {
-            AppError::ValidationError(msg)
-                => assert!(msg == "Title cannot be empty" || msg == "Content cannot be empty"),
+            AppError::ValidationError(msg) => {
+                assert!(msg == "Title cannot be empty" || msg == "Content cannot be empty")
+            }
             _ => panic!("Expected ValidationError"),
         }
+        
+        tx.rollback().await.expect("Failed to rollback transaction");
     }
 
     #[tokio::test]
@@ -497,10 +595,25 @@ mod tests {
             adt_detail: None,
         };
 
+        let mut tx = repo.pool.begin().await.expect("Failed to begin transaction");
+
         let created_notification = repo
-            .create_notification(&request)
+            .create_notification(&request, &mut tx)
             .await
             .expect("Failed to create notification");
+
+        let push_result = repo
+            .push_notification(
+                request.target_type.clone(),
+                request.adt_detail.clone(),
+                created_notification.id,
+                &mut tx,
+            )
+            .await
+            .expect("Failed to push notification");
+        assert!(push_result, "Notification should be pushed successfully");
+        
+        tx.commit().await.expect("Failed to commit transaction");
 
         let notification_id = created_notification.id;
 
@@ -510,16 +623,28 @@ mod tests {
             .await
             .expect("Failed to get user notifications");
 
-        assert!(!user_notifications.is_empty(), "User notifications should not be empty");
-        assert!(user_notifications.iter().any(|n| n.id == notification_id), "User notifications should contain the created notification");
+        assert!(
+            !user_notifications.is_empty(),
+            "User notifications should not be empty"
+        );
+        assert!(
+            user_notifications.iter().any(|n| n.id == notification_id),
+            "User notifications should contain the created notification"
+        );
 
         // Check if the notification is also in the all notification list
         let all_notifications = repo
             .get_all_notifications()
             .await
             .expect("Failed to get all notifications");
-        assert!(!all_notifications.is_empty(), "All notifications should not be empty");
-        assert!(all_notifications.iter().any(|n| n.id == notification_id), "All notifications should contain the created notification");    
+        assert!(
+            !all_notifications.is_empty(),
+            "All notifications should not be empty"
+        );
+        assert!(
+            all_notifications.iter().any(|n| n.id == notification_id),
+            "All notifications should contain the created notification"
+        );
     }
 
     #[tokio::test]
@@ -535,7 +660,22 @@ mod tests {
             adt_detail: Some("greg@gmail.com".to_string()),
         };
 
-        let created_notification = repo.create_notification(&request).await.unwrap();
+        let mut tx = repo.pool.begin().await.expect("Failed to begin transaction");
+
+        let created_notification = repo.create_notification(&request, &mut tx).await.unwrap();
+        let push_result = repo
+            .push_notification(
+                request.target_type.clone(),
+                request.adt_detail.clone(),
+                created_notification.id,
+                &mut tx,
+            )
+            .await
+            .expect("Failed to push notification");
+        assert!(push_result, "Notification should be pushed successfully");
+
+        tx.commit().await.expect("Failed to commit transaction");
+        
         let notification_id = created_notification.id;
         assert!(
             repo.get_notification_by_id(notification_id)
