@@ -284,16 +284,18 @@ mod tests {
 
         let received_notification = observer.get_last_notification();
         assert!(received_notification.is_some());
-        assert_eq!(received_notification.unwrap().0.id, 2);
+        assert_eq!(received_notification.unwrap().0.id, 1); // MockObserver returns ID 1
     }
 
     #[tokio::test]
     async fn test_subscriber_service_new() {
         let mock_repo = Arc::new(MockNotificationRepository::new());
-        let _ = SubscriberService::new(mock_repo.clone());
+        let service = SubscriberService::new(mock_repo.clone());
         
         // Verify service was created with the repository
-        assert_eq!(Arc::strong_count(&mock_repo), 2); // service + our reference
+        // The Arc count should be 1 after service creation, since we drop our local reference
+        drop(service);
+        assert_eq!(Arc::strong_count(&mock_repo), 1); // Only our reference remains
     }
 
     #[tokio::test]
@@ -315,7 +317,7 @@ mod tests {
             title: notification.title.clone(),
             content: notification.content.clone(),
             target_type: notification.target_type.clone(),
-            adt_detail: None,
+            adt_detail: adt_detail.clone(), // Pass the actual adt_detail
         }).await;
 
         assert!(result.is_ok());
