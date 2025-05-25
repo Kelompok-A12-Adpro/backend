@@ -15,7 +15,7 @@ mod tests {
         MakeDonationCommand, DeleteDonationMessageCommand,
     };
     use async_trait::async_trait;
-    use chrono::Utc;
+    use chrono::{Utc, Duration};
     use mockall::mock; // Import the mock macro
     use mockall::predicate::*;
     use std::sync::Arc;
@@ -46,34 +46,35 @@ mod tests {
 
         #[async_trait]
         impl CampaignRepository for TestCampaignRepo {
-            // Method used by DonationService and tested
-            async fn get_campaign(&self, campaign_id: i32) -> Result<Option<Campaign>, AppError>;
-
-            // Add declarations for all other methods from the CampaignRepository trait
-            // Even if not directly called by DonationService in these tests,
-            // the mock needs to acknowledge their existence.
             async fn create_campaign(&self, campaign: Campaign) -> Result<Campaign, AppError>;
+            async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError>; // Changed campaign_id to id
             async fn update_campaign(&self, campaign: Campaign) -> Result<Campaign, AppError>;
             async fn update_campaign_status(&self, id: i32, status: CampaignStatus) -> Result<bool, AppError>;
             async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError>;
             async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError>;
+            async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError>; // Added
+            async fn delete_campaign(&self, id: i32) -> Result<bool, AppError>;     // Added
         }
     }
 
     // Helper to create a dummy campaign for tests
     fn dummy_campaign(id: i32, status: CampaignStatus) -> Campaign {
+        let now = Utc::now();
         Campaign {
             id,
             user_id: 1,
             name: "Test Campaign".to_string(),
             description: "A campaign for testing donations".to_string(),
-            target_amount: 1000.0,
-            collected_amount: 0.0,
-            status,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            target_amount: 1000,
+            collected_amount: 0,
+            start_date: now, // Added
+            end_date: now + Duration::days(30), // Added - example: 30 days from now
+            image_url: Some("http://example.com/default_campaign_image.png".to_string()), // Added - example URL
             evidence_url: None,
             evidence_uploaded_at: None,
+            status,
+            created_at: now,
+            updated_at: now,
         }
     }
 
@@ -81,38 +82,53 @@ mod tests {
 
     #[tokio::test]
     async fn test_make_donation_success() {
-        let mut mock_donation_repo = MockTestDonationRepo::new(); // Use the generated mock name
-        let mut mock_campaign_repo = MockTestCampaignRepo::new(); // Use the generated mock name
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let donor_id = 1;
         let campaign_id = 10;
-        let amount = 50.0;
+        let donation_amount = 50;
+        let initial_collected_amount = 100; // Assuming campaign already had some donations
 
-        let campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
-        let campaign_clone = campaign.clone();
+        let mut campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
+        campaign.collected_amount = initial_collected_amount; // Set initial collected amount
+        let campaign_clone_for_get = campaign.clone();
 
         let expected_donation = Donation {
             id: 1, // Assumed ID from repo
             user_id: donor_id,
             campaign_id,
-            amount,
+            amount: donation_amount,
             message: None,
-            created_at: Utc::now(), // Actual value will come from mock
+            created_at: Utc::now(), // Actual value will come from mock, so this is for comparison structure
         };
         let expected_donation_clone = expected_donation.clone();
 
+        // 1. Expect get_campaign to be called and return an active campaign
         mock_campaign_repo
-            .expect_get_campaign() // Use the correct method name
+            .expect_get_campaign()
             .with(eq(campaign_id))
             .times(1)
-            .returning(move |_| Ok(Some(campaign_clone.clone())));
+            .returning(move |_| Ok(Some(campaign_clone_for_get.clone())));
 
+        // 2. Expect donation_repo.create to be called
         mock_donation_repo
             .expect_create()
             .withf(move |uid, req: &NewDonationRequest| {
-                *uid == donor_id && req.campaign_id == campaign_id && req.amount == amount && req.message.is_none()
+                *uid == donor_id && req.campaign_id == campaign_id && req.amount == donation_amount && req.message.is_none()
             })
             .times(1)
             .returning(move |_, _| Ok(expected_donation_clone.clone()));
+
+        // 3. Expect campaign_repo.update_campaign to be called with updated collected_amount
+        let expected_updated_collected_amount = initial_collected_amount + donation_amount;
+        mock_campaign_repo
+            .expect_update_campaign()
+            .withf(move |updated_campaign: &Campaign| {
+                updated_campaign.id == campaign_id &&
+                updated_campaign.collected_amount == expected_updated_collected_amount
+            })
+            .times(1)
+            .returning(|campaign_arg| Ok(campaign_arg.clone())); // Return the campaign passed to it, as if successfully updated
 
         let service =
             DonationService::new(Arc::new(mock_donation_repo), Arc::new(mock_campaign_repo));
@@ -120,16 +136,16 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id,
             campaign_id,
-            amount,
+            amount: donation_amount,
             message: None,
         };
         let result = service.make_donation(cmd).await;
 
-        assert!(result.is_ok());
-        let donation = result.unwrap();
-        assert_eq!(donation.id, expected_donation.id); // Compares the whole struct
-        assert_eq!(donation.user_id, donor_id);
-        assert_eq!(donation.amount, amount);
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result.err());
+        let donation_received = result.unwrap();
+        assert_eq!(donation_received.id, expected_donation.id);
+        assert_eq!(donation_received.user_id, donor_id);
+        assert_eq!(donation_received.amount, donation_amount);
     }
 
     #[tokio::test]
@@ -142,7 +158,7 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id: 1,
             campaign_id: 10,
-            amount: 0.0,
+            amount: 0,
             message: None,
         };
         let result = service.make_donation(cmd).await;
@@ -171,7 +187,7 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id: 1,
             campaign_id,
-            amount: 50.0,
+            amount: 50,
             message: None,
         };
         let result = service.make_donation(cmd).await;
@@ -201,7 +217,7 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id: 1,
             campaign_id,
-            amount: 50.0,
+            amount: 50,
             message: None,
         };
         let result = service.make_donation(cmd).await;
@@ -219,7 +235,7 @@ mod tests {
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let donor_id = 1;
         let campaign_id = 10;
-        let amount = 50.0;
+        let amount = 50;
 
         let campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
         let campaign_clone = campaign.clone();
@@ -298,7 +314,7 @@ mod tests {
             id: donation_id,
             user_id: owner_user_id, // Donation belongs to owner_user_id
             campaign_id: 10,
-            amount: 50.0,
+            amount: 50,
             message: Some("Test".to_string()),
             created_at: Utc::now(),
         };
@@ -428,10 +444,10 @@ mod tests {
         let campaign_id = 10;
         let expected_donations = vec![
             Donation {
-                id: 1, user_id: 1, campaign_id, amount: 50.0, message: None, created_at: Utc::now(),
+                id: 1, user_id: 1, campaign_id, amount: 50, message: None, created_at: Utc::now(),
             },
             Donation {
-                id: 2, user_id: 2, campaign_id, amount: 100.0, message: Some("Good luck!".to_string()), created_at: Utc::now(),
+                id: 2, user_id: 2, campaign_id, amount: 100, message: Some("Good luck!".to_string()), created_at: Utc::now(),
             },
         ];
         let expected_donations_clone = expected_donations.clone();
@@ -499,8 +515,8 @@ mod tests {
         let mock_campaign_repo = MockTestCampaignRepo::new(); // Not directly used
         let user_id = 1;
         let expected_donations = vec![
-            Donation { id: 1, user_id, campaign_id: 10, amount: 50.0, message: None, created_at: Utc::now() },
-            Donation { id: 2, user_id, campaign_id: 11, amount: 75.0, message: Some("Hi".to_string()), created_at: Utc::now() },
+            Donation { id: 1, user_id, campaign_id: 10, amount: 50, message: None, created_at: Utc::now() },
+            Donation { id: 2, user_id, campaign_id: 11, amount: 75, message: Some("Hi".to_string()), created_at: Utc::now() },
         ];
         let expected_donations_clone = expected_donations.clone();
 
@@ -556,6 +572,112 @@ mod tests {
         match result.err().unwrap() {
             AppError::InvalidOperation(msg) => assert_eq!(msg, "Simulated DB Error on find_by_user"),
             e => panic!("Expected InvalidOperation, got {:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_make_donation_campaign_not_active() {
+        let mock_donation_repo = MockTestDonationRepo::new(); // Not expected to be called
+        let mut mock_campaign_repo = MockTestCampaignRepo::new();
+        let campaign_id = 10;
+
+        // Campaign is PendingVerification, not Active
+        let campaign = dummy_campaign(campaign_id, CampaignStatus::PendingVerification);
+
+        mock_campaign_repo
+            .expect_get_campaign()
+            .with(eq(campaign_id))
+            .times(1)
+            .returning(move |_| Ok(Some(campaign.clone())));
+
+        let service =
+            DonationService::new(Arc::new(mock_donation_repo), Arc::new(mock_campaign_repo));
+
+        let cmd = MakeDonationCommand {
+            donor_id: 1,
+            campaign_id,
+            amount: 50,
+            message: None,
+        };
+        let result = service.make_donation(cmd).await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            AppError::InvalidOperation(msg) => {
+                assert!(msg.contains("Donations can only be made to active campaigns"))
+            }
+            e => panic!("Expected InvalidOperation for non-active campaign, got {:?}", e),
+        }
+    }
+
+        #[tokio::test]
+    async fn test_make_donation_campaign_update_fails_after_donation_creation() {
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mut mock_campaign_repo = MockTestCampaignRepo::new();
+        let donor_id = 1;
+        let campaign_id = 10;
+        let donation_amount = 50;
+        let initial_collected_amount = 100;
+
+        let mut campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
+        campaign.collected_amount = initial_collected_amount;
+        let campaign_clone_for_get = campaign.clone();
+
+        let expected_donation = Donation {
+            id: 1,
+            user_id: donor_id,
+            campaign_id,
+            amount: donation_amount,
+            message: None,
+            created_at: Utc::now(),
+        };
+        let expected_donation_clone = expected_donation.clone();
+
+        // 1. Expect get_campaign to succeed
+        mock_campaign_repo
+            .expect_get_campaign()
+            .with(eq(campaign_id))
+            .times(1)
+            .returning(move |_| Ok(Some(campaign_clone_for_get.clone())));
+
+        // 2. Expect donation_repo.create to succeed
+        mock_donation_repo
+            .expect_create()
+            .withf(move |uid, req: &NewDonationRequest| {
+                *uid == donor_id && req.campaign_id == campaign_id && req.amount == donation_amount
+            })
+            .times(1)
+            .returning(move |_, _| Ok(expected_donation_clone.clone()));
+
+        // 3. Expect campaign_repo.update_campaign to FAIL
+        let expected_updated_collected_amount = initial_collected_amount + donation_amount;
+        mock_campaign_repo
+            .expect_update_campaign()
+            .withf(move |updated_campaign: &Campaign| {
+                updated_campaign.id == campaign_id &&
+                updated_campaign.collected_amount == expected_updated_collected_amount
+            })
+            .times(1)
+            .returning(|_| Err(AppError::DatabaseError("Simulated DB error on campaign update".to_string())));
+
+        let service =
+            DonationService::new(Arc::new(mock_donation_repo), Arc::new(mock_campaign_repo));
+
+        let cmd = MakeDonationCommand {
+            donor_id,
+            campaign_id,
+            amount: donation_amount,
+            message: None,
+        };
+        let result = service.make_donation(cmd).await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            AppError::InternalServerError(msg) => {
+                assert!(msg.contains(&format!("Donation created, but failed to update campaign (ID: {})", campaign_id)));
+                assert!(msg.contains("Simulated DB error on campaign update"));
+            }
+            e => panic!("Expected InternalServerError, got {:?}", e),
         }
     }
 }

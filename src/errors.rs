@@ -1,7 +1,7 @@
-use rocket::{response::Responder, http::{Status, ContentType}, Response, Request}; // Added ContentType
+use rocket::{response::Responder, http::{Status, ContentType}, Response, Request};
 use thiserror::Error;
-use serde_json::json; // Make sure serde_json is a dependency and imported
-use std::io::Cursor;   // For the body
+use serde_json::json;
+use std::io::Cursor;
 
 #[derive(Error, Debug)]
 pub enum AppError {
@@ -15,7 +15,7 @@ pub enum AppError {
     Forbidden(String),
 
     #[error("Authentication required")]
-    Unauthorized, // This one doesn't have a message field in your enum definition
+    Unauthorized,
 
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
@@ -24,7 +24,13 @@ pub enum AppError {
     JsonParseError(String),
     
     #[error("Database error: {0}")]
-    DatabaseError(String),
+    DatabaseError(String), // Keep original message for logging
+
+    #[error("Database constraint violation: {0}")]
+    DatabaseConstraintViolation(String), // Keep original message for logging
+
+    #[error("Internal server error: {0}")]
+    InternalServerError(String), // Keep original message for logging
 }
 
 impl From<sqlx::Error> for AppError {
@@ -39,23 +45,37 @@ impl From<sqlx::Error> for AppError {
 #[rocket::async_trait]
 impl<'r> Responder<'r, 'static> for AppError {
     fn respond_to(self, _req: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let (status, error_message) = match self {
+        let (status, client_error_message) = match self {
             AppError::NotFound(msg) => (Status::NotFound, msg),
             AppError::ValidationError(msg) => (Status::BadRequest, msg),
             AppError::Forbidden(msg) => (Status::Forbidden, msg),
-            AppError::Unauthorized => (Status::Unauthorized, "Authentication required".to_string()), // Provide a default message string
+            AppError::Unauthorized => (Status::Unauthorized, "Authentication required.".to_string()),
             AppError::InvalidOperation(msg) => (Status::BadRequest, msg),
-            AppError::JsonParseError(msg) => (Status::BadRequest, msg),
-            AppError::DatabaseError(msg) => (Status::InternalServerError, msg),
+            AppError::JsonParseError(msg) => (Status::BadRequest, msg), // serde_json messages are often okay for clients
+
+            AppError::DatabaseError(internal_msg) => {
+                eprintln!("Database error detail: {}", internal_msg); // Log the specific error
+                (Status::InternalServerError, "A database error occurred.".to_string()) // Generic message for client
+            },
+            AppError::DatabaseConstraintViolation(internal_msg) => {
+                eprintln!("Database Constraint Violation detail: {}", internal_msg); // Log the specific error
+                // You could try to make this message more specific if you parse internal_msg,
+                // but a generic one is safer.
+                (Status::Conflict, "The request conflicts with existing data.".to_string())
+            },
+            AppError::InternalServerError(internal_msg) => {
+                eprintln!("Internal server error detail: {}", internal_msg); // Log the specific error
+                (Status::InternalServerError, "An internal server error occurred.".to_string()) // Generic message for client
+            },
         };
 
         // Create the JSON body
-        let json_body = json!({ "error": error_message }).to_string();
+        let json_body = json!({ "error": client_error_message }).to_string();
 
         Response::build()
             .status(status)
-            .header(ContentType::JSON) // Set the Content-Type header
-            .sized_body(json_body.len(), Cursor::new(json_body)) // Set the JSON body
+            .header(ContentType::JSON)
+            .sized_body(json_body.len(), Cursor::new(json_body))
             .ok()
     }
 }

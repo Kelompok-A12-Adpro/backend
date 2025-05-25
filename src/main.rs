@@ -3,13 +3,8 @@ extern crate rocket;
 
 use backend::{
     controller::{
-        admin::routes::admin_routes,
-        donation::routes::donation_routes,
-        admin::notification_controller::catchers as notification_catchers,
-        campaign::routes::campaign_routes,
-    },
-    state::StateManagement,
-    db,
+        admin::{notification_controller::{catchers as notification_catchers, user_routes}, routes::admin_routes}, campaign::routes::campaign_routes, donation::routes::donation_routes
+    }, db, state::StateManagement
 };
 
 use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
@@ -27,7 +22,7 @@ fn not_found(req: &rocket::Request<'_>) -> String {
 #[launch]
 async fn rocket() -> _ {
     // Initialize environment variables (if using dotenv)
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok(); //dotenvy is newer version of dotenc
     
     // CORS Configuration
     let cors = CorsOptions::default()
@@ -45,6 +40,7 @@ async fn rocket() -> _ {
 
     // Initialize the database pool singleton
     let pool = db::init_pool().await;
+    println!("Database pool initialized.");
 
     // Initialize all application state
     let app_state = backend::state::init_state(pool).await;
@@ -52,8 +48,9 @@ async fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/", campaign_routes())
-        .mount("/admin", admin_routes())
-        .mount("/[campaign_id_placeholder]/donation", donation_routes())
+        .mount("/api/admin/notification", admin_routes())
+        .mount("/api/notification", user_routes())
+        .mount("/api/donation", donation_routes())
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
         .manage_state(app_state)

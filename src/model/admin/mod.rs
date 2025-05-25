@@ -1,6 +1,4 @@
-pub mod statistics;
 pub mod campaign_admin;
-pub mod transaction_admin;
-pub mod user_admin;
+pub mod new_campaign_subs;
 pub mod fund_usage;
 pub mod notification;
