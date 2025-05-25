@@ -11,7 +11,7 @@ use crate::model::campaign::campaign::{Campaign, CampaignStatus};
 use crate::service::campaign::campaign_service::CampaignService;
 use crate::errors::AppError;
 
-use crate::controller::campaign::auth::AuthUser;
+use crate::controller::auth::auth::AuthUser;
 
 #[derive(Deserialize)]
 pub struct CreateCampaignRequest {
