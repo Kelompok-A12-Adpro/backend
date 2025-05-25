@@ -216,6 +216,7 @@ impl CampaignRepository for PgCampaignRepository {
     }
 
     async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError> {
+        let status = CampaignStatus::Active.to_string(); // Default status to filter active campaigns
         let recs = sqlx::query_as!(
             Campaign,
             "
@@ -235,7 +236,9 @@ impl CampaignRepository for PgCampaignRepository {
               created_at AT TIME ZONE 'UTC' as \"created_at!\",
               updated_at AT TIME ZONE 'UTC' as \"updated_at!\"
             FROM campaigns
-            "
+            WHERE status = $1
+            ",
+            status
         )
         .fetch_all(&self.pool)
         .await?;
