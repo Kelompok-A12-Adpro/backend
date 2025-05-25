@@ -37,7 +37,7 @@ fn admin_check(auth_user: AuthUser) -> Result<(), AppError> {
 ///// Admin Side /////
 //////////////////////
 
-#[get("/notifications")]
+#[get("/")]
 async fn get_notifications_admin(
     auth_user: AuthUser,
     service: &State<NotificationService>,
@@ -108,7 +108,7 @@ async fn delete_notification(
 ///// User Side /////
 /////////////////////
 
-#[get("/notifications")]
+#[get("/")]
 async fn get_notifications(
     auth_user: AuthUser,
     service: &State<NotificationService>,
