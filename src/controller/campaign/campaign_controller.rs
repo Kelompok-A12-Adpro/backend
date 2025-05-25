@@ -115,16 +115,16 @@ async fn get_campaign(
     }
 }
 
-#[get("/campaigns/user/<user_id>")]
+#[get("/campaigns/user", format = "json")]
 async fn get_user_campaigns(
-    user_id: i32,
-    
+    user: AuthUser,
     service: &State<Arc<CampaignService>>
 ) -> Result<Json<Vec<Campaign>>, Status> {
-    match service.get_campaigns_by_user(user_id).await {
-        Ok(campaigns) => Ok(Json(campaigns)),
-        Err(_) => Err(Status::InternalServerError),
-    }
+    service
+        .get_campaigns_by_user(user.id)
+        .await
+        .map(Json)
+        .map_err(|_| Status::InternalServerError)
 }
 
 #[derive(Deserialize)]
