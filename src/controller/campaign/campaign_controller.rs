@@ -1,3 +1,4 @@
+use autometrics::autometrics;
 use chrono::{DateTime, Utc};
 use rocket::{State, get, post, put, delete, routes, uri};
 use rocket::serde::json::Json;
@@ -92,6 +93,7 @@ async fn delete_campaign(
 }
 
 #[get("/campaigns")]
+#[autometrics]
 async fn get_all_campaigns(
     service: &State<Arc<CampaignService>>,
     user: AuthUser
@@ -103,6 +105,7 @@ async fn get_all_campaigns(
 }
 
 #[get("/campaigns/<campaign_id>")]
+#[autometrics]
 async fn get_campaign(
     campaign_id: i32,
     user: AuthUser,
@@ -116,6 +119,7 @@ async fn get_campaign(
 }
 
 #[get("/campaigns/user", format = "json")]
+#[autometrics]
 async fn get_user_campaigns(
     user: AuthUser,
     service: &State<Arc<CampaignService>>

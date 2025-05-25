@@ -4,6 +4,7 @@ use crate::model::admin::notification::{
     CreateNotificationRequest, Notification,
 };
 use crate::service::notification::notification_service::NotificationService;
+use autometrics::autometrics;
 use rocket::serde::json::Json;
 use rocket::{catch, delete, get, post, routes, State};
 use serde::{Deserialize, Serialize};
@@ -37,7 +38,7 @@ fn admin_check(auth_user: AuthUser) -> Result<(), AppError> {
 ///// Admin Side /////
 //////////////////////
 
-#[get("/")]
+#[get("/notifications")]
 async fn get_notifications_admin(
     auth_user: AuthUser,
     service: &State<NotificationService>,
@@ -108,7 +109,8 @@ async fn delete_notification(
 ///// User Side /////
 /////////////////////
 
-#[get("/")]
+#[get("/notifications")]
+#[autometrics]
 async fn get_notifications(
     auth_user: AuthUser,
     service: &State<NotificationService>,
@@ -126,6 +128,7 @@ async fn get_notifications(
 }
 
 #[post("/subscribe", format = "json")]
+#[autometrics]
 async fn subscribe_to_notification(
     auth_user: AuthUser,
     service: &State<NotificationService>,
@@ -147,6 +150,7 @@ async fn subscribe_to_notification(
 }
 
 #[post("/unsubscribe", format = "json")]
+#[autometrics]
 async fn unsubscribe_from_notification(
     auth_user: AuthUser,
     service: &State<NotificationService>,
@@ -168,26 +172,27 @@ async fn unsubscribe_from_notification(
 }
 
 #[delete("/notifications/<notification_id>")]
+#[autometrics]
 async fn delete_notification_user(
     auth_user: AuthUser,
     service: &State<NotificationService>,
     notification_id: i32,
 ) -> Json<ApiResponse<String>> {
-    service
+    match service
         .delete_notification_for_user(notification_id, auth_user.email)
         .await
-        .map_err(|_| {
-            AppError::NotFound(format!(
-                "Notification with ID {} not found",
-                notification_id
-            ))
-        });
-
-    Json(ApiResponse {
-        success: true,
-        message: "Notification deleted successfully".to_string(),
-        data: None,
-    })
+    {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            message: "Notification deleted successfully".to_string(),
+            data: None,
+        }),
+        Err(_) => Json(ApiResponse {
+            success: false,
+            message: format!("Notification with ID {} not found", notification_id),
+            data: None,
+        }),
+    }
 }
 
 pub fn user_routes() -> Vec<rocket::Route> {
