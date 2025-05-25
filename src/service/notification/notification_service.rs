@@ -45,9 +45,10 @@ impl NotificationService {
     pub async fn notify(
         &self,
         request: CreateNotificationRequest,
-    ) -> Result<(), AppError> {
-        self.observer.update(&request).await.map_err(|e| e)?;
-        Ok(())
+    ) -> Result<Notification, AppError> {
+        self.observer.update(&request)
+            .await
+            .map_err(|e| AppError::ValidationError(format!("Observer failed: {}", e)))
     }
 
     pub async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError> {
