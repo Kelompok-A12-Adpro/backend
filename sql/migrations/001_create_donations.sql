@@ -7,7 +7,7 @@ CREATE TABLE donations (
     id SERIAL PRIMARY KEY,                            -- Corresponds to pub id: i32
     user_id INT NOT NULL,                           -- Corresponds to pub user_id: i32
     campaign_id INT NOT NULL,                       -- Corresponds to pub campaign_id: i32
-    amount DOUBLE PRECISION NOT NULL,               -- Corresponds to pub amount: f64
+    amount BIGINT NOT NULL,               -- Corresponds to pub amount: f64
     message TEXT,                                   -- Corresponds to pub message: Option<String>
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP -- Corresponds to pub created_at: DateTime<Utc>
 
