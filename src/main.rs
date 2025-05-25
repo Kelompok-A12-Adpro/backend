@@ -57,6 +57,7 @@ async fn rocket() -> _ {
         .mount("/api/admin", admin_routes())
         .mount("/api", user_routes())
         .mount("/api/donation", donation_routes())
+        .mount("/api/metrics", routes![metrics])
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
         .manage_state(app_state)
