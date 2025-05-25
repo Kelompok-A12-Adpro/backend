@@ -7,16 +7,16 @@ use jsonwebtoken::{decode, DecodingKey, Validation};
 use auth::repository::user_repository::find_user_by_email;
 #[derive(Deserialize)]
 struct Claims { 
-    sub: String, 
-    id: i32, 
-    is_admin: bool, 
-    name: String, 
-    exp: usize }
+    sub: i32, // User ID
+    exp: usize,
+    email: String,
+    is_admin: bool
+}
 
 pub struct AuthUser { 
     pub id: i32,
+    pub email: String,
     pub is_admin: bool,
-    pub name: String,
 }
 
 #[rocket::async_trait]
@@ -37,9 +37,9 @@ impl<'r> FromRequest<'r> for AuthUser {
                 let c = token_data.claims;
                 // Langsung pakai data dari JWT, tanpa query database
                 Outcome::Success(AuthUser { 
-                    id: c.id, 
-                    is_admin: c.is_admin, 
-                    name: c.name 
+                    id: c.sub,
+                    email: c.email,
+                    is_admin: c.is_admin,
                 })
             }
             Err(_) => Outcome::Forward(Status::Unauthorized),

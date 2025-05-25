@@ -1,3 +1,4 @@
+use autometrics::autometrics;
 use rocket::{State, post, delete, get, routes, response::status};
 use rocket::serde::json::Json;
 
@@ -8,6 +9,7 @@ use crate::errors::AppError;
 use crate::controller::auth::auth::AuthUser;
 
 #[post("/donations", format = "json", data = "<donation_req>")]
+#[autometrics]
 async fn make_donation_route(
     auth_user: AuthUser,
     donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
@@ -27,6 +29,7 @@ async fn make_donation_route(
 
 
 #[delete("/donations/<donation_id>/message")]
+#[autometrics]
 async fn delete_donation_message_route(
     auth_user: AuthUser,
     donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
@@ -43,6 +46,7 @@ async fn delete_donation_message_route(
 
 
 #[get("/campaigns/<campaign_id>/donations")]
+#[autometrics]
 async fn get_campaign_donations_route(
     donation_service: &State<DonationService>,
     campaign_id: i32,
@@ -53,6 +57,7 @@ async fn get_campaign_donations_route(
 
 
 #[get("/donations/me")]
+#[autometrics]
 async fn get_my_donations_route(
     auth_user: AuthUser,
     donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
