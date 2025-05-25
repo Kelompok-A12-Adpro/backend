@@ -1,8 +1,46 @@
-use crate::model::admin::notification::Notification;
+use std::sync::Arc;
+use async_trait::async_trait;
+use crate::{errors::AppError, model::admin::notification::{CreateNotificationRequest, Notification}, repository::admin::notification_repo::NotificationRepository};
 
+#[async_trait]
 pub trait NotificationObserver: Send + Sync {
-    fn update(&self, notification: &Notification);
-    fn id(&self) -> &str;
+    async fn update(&self, request: &CreateNotificationRequest) -> Result<Notification, AppError>;
+}
+
+pub struct SubscriberService {
+    notification_repo: Arc<dyn NotificationRepository>,
+}
+
+impl SubscriberService {
+    pub fn new(notification_repo: Arc<dyn NotificationRepository>) -> Self {
+        SubscriberService { notification_repo }
+    }
+}
+
+#[async_trait]
+impl NotificationObserver for SubscriberService {
+    async fn update(&self, request: &CreateNotificationRequest) -> Result<Notification, AppError> {
+        let mut tx = self.notification_repo.begin_transaction().await?;
+
+        match self.notification_repo.create_notification(&request, &mut tx).await {
+            Ok(notification) => {
+                if let Err(e) = self.notification_repo.push_notification(
+                    notification.target_type.clone(),
+                    request.adt_detail.clone(),
+                    notification.id,
+                    &mut tx,
+                ).await {
+                    return Err(e);
+                }
+                let _ = tx.commit().await;
+                Ok(notification)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
