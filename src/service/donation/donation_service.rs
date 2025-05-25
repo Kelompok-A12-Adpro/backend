@@ -25,7 +25,7 @@ impl DonationService {
     }
 
     pub async fn make_donation(&self, cmd: MakeDonationCommand) -> Result<Donation, AppError> {
-        if cmd.amount <= 0.0 {
+        if cmd.amount <= 0 {
             return Err(AppError::ValidationError(
                 "Donation amount must be positive".to_string(),
             ));
