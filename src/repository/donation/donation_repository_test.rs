@@ -123,7 +123,7 @@ mod tests {
         let user_id = 1;
         let new_donation_req = NewDonationRequest {
             campaign_id: 101,
-            amount: 50.0,
+            amount: 50,
             message: Some("Test donation".to_string()),
         };
 
@@ -148,7 +148,7 @@ mod tests {
         let user_id = 2;
         let new_donation_req = NewDonationRequest {
             campaign_id: 102,
-            amount: 25.0,
+            amount: 25,
             message: None,
         };
 
@@ -164,7 +164,7 @@ mod tests {
         let user_id = 3;
         let new_donation_req = NewDonationRequest {
             campaign_id: 103,
-            amount: 75.0,
+            amount: 75,
             message: Some("Find me".to_string()),
         };
         let created_donation = repo.create(user_id, &new_donation_req).await.unwrap();
@@ -193,16 +193,16 @@ mod tests {
         let campaign_id_target = 201;
         let campaign_id_other = 202;
 
-        repo.create(1, &NewDonationRequest { campaign_id: campaign_id_target, amount: 10.0, message: None }).await.unwrap(); // id 1
-        repo.create(2, &NewDonationRequest { campaign_id: campaign_id_target, amount: 20.0, message: Some("Msg1".into()) }).await.unwrap(); // id 2
-        repo.create(3, &NewDonationRequest { campaign_id: campaign_id_other, amount: 30.0, message: None }).await.unwrap(); // id 3
+        repo.create(1, &NewDonationRequest { campaign_id: campaign_id_target, amount: 10, message: None }).await.unwrap(); // id 1
+        repo.create(2, &NewDonationRequest { campaign_id: campaign_id_target, amount: 20, message: Some("Msg1".into()) }).await.unwrap(); // id 2
+        repo.create(3, &NewDonationRequest { campaign_id: campaign_id_other, amount: 30, message: None }).await.unwrap(); // id 3
 
         let donations = repo.find_by_campaign(campaign_id_target).await.unwrap();
         assert_eq!(donations.len(), 2);
         assert!(donations.iter().all(|d| d.campaign_id == campaign_id_target));
         // Check if specific donations are present (optional, good for ordering if relevant)
-        assert!(donations.iter().any(|d| d.id == 1 && d.amount == 10.0));
-        assert!(donations.iter().any(|d| d.id == 2 && d.amount == 20.0));
+        assert!(donations.iter().any(|d| d.id == 1 && d.amount == 10));
+        assert!(donations.iter().any(|d| d.id == 2 && d.amount == 20));
 
 
         let donations_other = repo.find_by_campaign(campaign_id_other).await.unwrap();
@@ -221,9 +221,9 @@ mod tests {
         let user_id_target = 51;
         let user_id_other = 52;
 
-        repo.create(user_id_target, &NewDonationRequest { campaign_id: 301, amount: 15.0, message: None }).await.unwrap(); // id 1
-        repo.create(user_id_target, &NewDonationRequest { campaign_id: 302, amount: 25.0, message: Some("Msg2".into()) }).await.unwrap(); // id 2
-        repo.create(user_id_other, &NewDonationRequest { campaign_id: 303, amount: 35.0, message: None }).await.unwrap(); // id 3
+        repo.create(user_id_target, &NewDonationRequest { campaign_id: 301, amount: 15, message: None }).await.unwrap(); // id 1
+        repo.create(user_id_target, &NewDonationRequest { campaign_id: 302, amount: 25, message: Some("Msg2".into()) }).await.unwrap(); // id 2
+        repo.create(user_id_other, &NewDonationRequest { campaign_id: 303, amount: 35, message: None }).await.unwrap(); // id 3
 
         let donations = repo.find_by_user(user_id_target).await.unwrap();
         assert_eq!(donations.len(), 2);
@@ -245,7 +245,7 @@ mod tests {
         let user_id = 61;
         let initial_donation = repo.create(user_id, &NewDonationRequest {
             campaign_id: 401,
-            amount: 100.0,
+            amount: 100,
             message: Some("Initial message".to_string()),
         }).await.unwrap(); // id 1
 
@@ -264,7 +264,7 @@ mod tests {
         let user_id = 62;
         let initial_donation = repo.create(user_id, &NewDonationRequest {
             campaign_id: 402,
-            amount: 110.0,
+            amount: 110,
             message: Some("A message to clear".to_string()),
         }).await.unwrap(); // id 1
 
@@ -295,7 +295,7 @@ mod tests {
         let other_user_id = 65; // Different user
         let initial_donation = repo.create(owner_user_id, &NewDonationRequest { // Donation created by owner_user_id
             campaign_id: 404,
-            amount: 120.0,
+            amount: 120,
             message: Some("Original message by owner".to_string()),
         }).await.unwrap(); // id 1
 
