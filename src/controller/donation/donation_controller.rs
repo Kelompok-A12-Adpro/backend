@@ -9,11 +9,10 @@ use crate::controller::auth::auth::AuthUser;
 
 #[post("/donations", format = "json", data = "<donation_req>")]
 async fn make_donation_route(
-    auth_user: AuthUser, // Original line, removed
+    auth_user: AuthUser,
     donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
     donation_req: Json<NewDonationRequest>,
 ) -> Result<status::Created<Json<Donation>>, AppError> { // Changed to return 201 Created
-    // Create a dummy AuthUser instance
 
     let cmd = crate::service::commands::donation_commands::MakeDonationCommand {
         donor_id: auth_user.id, // Use the ID from the dummy user
@@ -29,7 +28,7 @@ async fn make_donation_route(
 
 #[delete("/donations/<donation_id>/message")]
 async fn delete_donation_message_route(
-    auth_user: AuthUser, // Original line, removed
+    auth_user: AuthUser,
     donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
     donation_id: i32,
 ) -> Result<status::NoContent, AppError> { // Changed to return 204 No Content
@@ -59,7 +58,7 @@ async fn get_my_donations_route(
     donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
 ) -> Result<Json<Vec<Donation>>, AppError> {
 
-    let donations = donation_service.get_donations_by_user(auth_user.id).await?; // Use dummy ID
+    let donations = donation_service.get_donations_by_user(auth_user.id).await?;
     Ok(Json(donations))
 }
 
