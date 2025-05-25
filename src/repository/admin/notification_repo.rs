@@ -70,8 +70,20 @@ impl NotificationRepository for DbNotificationRepository {
     async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<String>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError> {
         match target {
             NotificationTargetType::AllUsers => {
-                // All users notification will always be fetched
-                Ok(true)
+                // Check if notification exists before marking as successful
+                let exists = sqlx::query!(
+                    "SELECT COUNT(*) as count FROM notification WHERE id = $1",
+                    notification_id
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+                if exists.count.unwrap_or(0) > 0 {
+                    Ok(true)
+                } else {
+                    Err(AppError::ValidationError("Notification does not exist".to_string()))
+                }
             }
             NotificationTargetType::SpecificUser => {
                 let _result = sqlx::query!(
@@ -235,37 +247,6 @@ mod tests {
     use super::*;
     use crate::db::get_test_pool;
     use serial_test::serial;
-
-    fn get_query_for_target_type<'a>(
-        target_type: &'a NotificationTargetType,
-        notification_id: i32,
-        adt_details: Option<&'a str>,
-    ) -> Result<Option<sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments>>, AppError>
-    {
-        match target_type {
-            NotificationTargetType::AllUsers => Ok(None),
-            NotificationTargetType::Fundraisers => Ok(None),
-            NotificationTargetType::Donors => Ok(None),
-            NotificationTargetType::NewCampaign => Ok(Some(sqlx::query!(
-                "INSERT INTO notification_user (user_email, announcement_id)
-                    SELECT user_email, $1 FROM announcement_subscription",
-                notification_id
-            ))),
-            NotificationTargetType::SpecificUser => {
-                let user_email = adt_details.ok_or_else(|| {
-                    AppError::ValidationError(
-                        "User email is required for specific user target".to_string(),
-                    )
-                })?;
-                Ok(Some(sqlx::query!(
-                    "INSERT INTO notification_user (user_email, announcement_id)
-                    VALUES ($1, $2)",
-                    user_email,
-                    notification_id
-                )))
-            }
-        }
-    }
 
     // We no longer use the static singleton
     async fn create_test_repo() -> DbNotificationRepository {
