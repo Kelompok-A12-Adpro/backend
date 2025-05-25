@@ -15,7 +15,7 @@ mod tests {
         MakeDonationCommand, DeleteDonationMessageCommand,
     };
     use async_trait::async_trait;
-    use chrono::Utc;
+    use chrono::{Utc, Duration};
     use mockall::mock; // Import the mock macro
     use mockall::predicate::*;
     use std::sync::Arc;
@@ -46,34 +46,35 @@ mod tests {
 
         #[async_trait]
         impl CampaignRepository for TestCampaignRepo {
-            // Method used by DonationService and tested
-            async fn get_campaign(&self, campaign_id: i32) -> Result<Option<Campaign>, AppError>;
-
-            // Add declarations for all other methods from the CampaignRepository trait
-            // Even if not directly called by DonationService in these tests,
-            // the mock needs to acknowledge their existence.
             async fn create_campaign(&self, campaign: Campaign) -> Result<Campaign, AppError>;
+            async fn get_campaign(&self, id: i32) -> Result<Option<Campaign>, AppError>; // Changed campaign_id to id
             async fn update_campaign(&self, campaign: Campaign) -> Result<Campaign, AppError>;
             async fn update_campaign_status(&self, id: i32, status: CampaignStatus) -> Result<bool, AppError>;
             async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError>;
             async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError>;
+            async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError>; // Added
+            async fn delete_campaign(&self, id: i32) -> Result<bool, AppError>;     // Added
         }
     }
 
     // Helper to create a dummy campaign for tests
     fn dummy_campaign(id: i32, status: CampaignStatus) -> Campaign {
+        let now = Utc::now();
         Campaign {
             id,
             user_id: 1,
             name: "Test Campaign".to_string(),
             description: "A campaign for testing donations".to_string(),
-            target_amount: 1000.0,
-            collected_amount: 0.0,
-            status,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            target_amount: 1000,
+            collected_amount: 0,
+            start_date: now, // Added
+            end_date: now + Duration::days(30), // Added - example: 30 days from now
+            image_url: Some("http://example.com/default_campaign_image.png".to_string()), // Added - example URL
             evidence_url: None,
             evidence_uploaded_at: None,
+            status,
+            created_at: now,
+            updated_at: now,
         }
     }
 
@@ -85,8 +86,8 @@ mod tests {
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let donor_id = 1;
         let campaign_id = 10;
-        let donation_amount = 50.0;
-        let initial_collected_amount = 100.0; // Assuming campaign already had some donations
+        let donation_amount = 50;
+        let initial_collected_amount = 100; // Assuming campaign already had some donations
 
         let mut campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
         campaign.collected_amount = initial_collected_amount; // Set initial collected amount
@@ -157,7 +158,7 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id: 1,
             campaign_id: 10,
-            amount: 0.0,
+            amount: 0,
             message: None,
         };
         let result = service.make_donation(cmd).await;
@@ -186,7 +187,7 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id: 1,
             campaign_id,
-            amount: 50.0,
+            amount: 50,
             message: None,
         };
         let result = service.make_donation(cmd).await;
@@ -216,7 +217,7 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id: 1,
             campaign_id,
-            amount: 50.0,
+            amount: 50,
             message: None,
         };
         let result = service.make_donation(cmd).await;
@@ -234,7 +235,7 @@ mod tests {
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let donor_id = 1;
         let campaign_id = 10;
-        let amount = 50.0;
+        let amount = 50;
 
         let campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
         let campaign_clone = campaign.clone();
@@ -313,7 +314,7 @@ mod tests {
             id: donation_id,
             user_id: owner_user_id, // Donation belongs to owner_user_id
             campaign_id: 10,
-            amount: 50.0,
+            amount: 50,
             message: Some("Test".to_string()),
             created_at: Utc::now(),
         };
@@ -443,10 +444,10 @@ mod tests {
         let campaign_id = 10;
         let expected_donations = vec![
             Donation {
-                id: 1, user_id: 1, campaign_id, amount: 50.0, message: None, created_at: Utc::now(),
+                id: 1, user_id: 1, campaign_id, amount: 50, message: None, created_at: Utc::now(),
             },
             Donation {
-                id: 2, user_id: 2, campaign_id, amount: 100.0, message: Some("Good luck!".to_string()), created_at: Utc::now(),
+                id: 2, user_id: 2, campaign_id, amount: 100, message: Some("Good luck!".to_string()), created_at: Utc::now(),
             },
         ];
         let expected_donations_clone = expected_donations.clone();
@@ -514,8 +515,8 @@ mod tests {
         let mock_campaign_repo = MockTestCampaignRepo::new(); // Not directly used
         let user_id = 1;
         let expected_donations = vec![
-            Donation { id: 1, user_id, campaign_id: 10, amount: 50.0, message: None, created_at: Utc::now() },
-            Donation { id: 2, user_id, campaign_id: 11, amount: 75.0, message: Some("Hi".to_string()), created_at: Utc::now() },
+            Donation { id: 1, user_id, campaign_id: 10, amount: 50, message: None, created_at: Utc::now() },
+            Donation { id: 2, user_id, campaign_id: 11, amount: 75, message: Some("Hi".to_string()), created_at: Utc::now() },
         ];
         let expected_donations_clone = expected_donations.clone();
 
@@ -595,7 +596,7 @@ mod tests {
         let cmd = MakeDonationCommand {
             donor_id: 1,
             campaign_id,
-            amount: 50.0,
+            amount: 50,
             message: None,
         };
         let result = service.make_donation(cmd).await;
@@ -615,8 +616,8 @@ mod tests {
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let donor_id = 1;
         let campaign_id = 10;
-        let donation_amount = 50.0;
-        let initial_collected_amount = 100.0;
+        let donation_amount = 50;
+        let initial_collected_amount = 100;
 
         let mut campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
         campaign.collected_amount = initial_collected_amount;

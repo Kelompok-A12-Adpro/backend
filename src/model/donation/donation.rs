@@ -7,7 +7,7 @@ pub struct Donation {
     pub id: i32,
     pub user_id: i32,
     pub campaign_id: i32,
-    pub amount: f64,
+    pub amount: i64,
     pub message: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -15,7 +15,7 @@ pub struct Donation {
 #[derive(Debug, Clone, Deserialize)]
 pub struct NewDonationRequest {
    pub campaign_id: i32,
-   pub amount: f64,
+   pub amount: i64,
    pub message: Option<String>,
 }
 

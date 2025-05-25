@@ -2,7 +2,7 @@
 pub struct MakeDonationCommand {
     pub donor_id: i32,
     pub campaign_id: i32,
-    pub amount: f64,
+    pub amount: i64,
     pub message: Option<String>,
 }
 

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::*; // To import controller functions and types from parent module
+    // To import controller functions and types from parent module
     use crate::model::donation::donation::{Donation, NewDonationRequest};
     use crate::service::donation::donation_service::DonationService;
     use crate::errors::AppError;
@@ -8,10 +8,10 @@ mod tests {
     // use crate::auth::auth::AuthUser; // Still using DummyAuthUser from controller
 
     use rocket::local::blocking::Client;
-    use rocket::http::{Status, ContentType, Header};
+    use rocket::http::{Status, ContentType};
     use rocket::serde::json::json;
     use std::sync::{Arc, Mutex};
-    use chrono::Utc;
+    use chrono::{Utc, Duration};
     use async_trait::async_trait;
 
     // Import repository traits and dependent models
@@ -110,6 +110,8 @@ mod tests {
         update_campaign_status_fn: Arc<Mutex<Option<Box<dyn Fn(i32, CampaignStatus) -> Result<bool, AppError> + Send + Sync>>>>,
         get_campaigns_by_user_fn: Arc<Mutex<Option<Box<dyn Fn(i32) -> Result<Vec<Campaign>, AppError> + Send + Sync>>>>,
         get_campaigns_by_status_fn: Arc<Mutex<Option<Box<dyn Fn(CampaignStatus) -> Result<Vec<Campaign>, AppError> + Send + Sync>>>>,
+        get_all_campaigns_fn: Arc<Mutex<Option<Box<dyn Fn() -> Result<Vec<Campaign>, AppError> + Send + Sync + 'static>>>>,
+        delete_campaign_fn: Arc<Mutex<Option<Box<dyn Fn(i32) -> Result<bool, AppError> + Send + Sync + 'static>>>>,
     }
 
     impl MockCampaignRepository {
@@ -121,6 +123,8 @@ mod tests {
                 update_campaign_status_fn: Arc::new(Mutex::new(None)),
                 get_campaigns_by_user_fn: Arc::new(Mutex::new(None)),
                 get_campaigns_by_status_fn: Arc::new(Mutex::new(None)),
+                get_all_campaigns_fn: Arc::new(Mutex::new(None)),
+                delete_campaign_fn: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -141,6 +145,12 @@ mod tests {
         }
         fn expect_get_campaigns_by_status(&mut self, f: impl Fn(CampaignStatus) -> Result<Vec<Campaign>, AppError> + Send + Sync + 'static) {
             *self.get_campaigns_by_status_fn.lock().unwrap() = Some(Box::new(f));
+        }
+        fn expect_get_all_campaigns(&mut self, f: impl Fn() -> Result<Vec<Campaign>, AppError> + Send + Sync + 'static) {
+            *self.get_all_campaigns_fn.lock().unwrap() = Some(Box::new(f));
+        }
+        fn expect_delete_campaign(&mut self, f: impl Fn(i32) -> Result<bool, AppError> + Send + Sync + 'static) {
+            *self.delete_campaign_fn.lock().unwrap() = Some(Box::new(f));
         }
     }
 
@@ -201,6 +211,24 @@ mod tests {
                 panic!("MockCampaignRepository: expect_get_campaigns_by_status was not called or not set for status: {:?}", status);
             }
         }
+
+        async fn get_all_campaigns(&self) -> Result<Vec<Campaign>, AppError> {
+            let f = self.get_all_campaigns_fn.lock().unwrap();
+            if let Some(f) = &*f {
+                (f)()
+            } else {
+                panic!("MockCampaignRepository::get_all_campaigns was called without an expectation");
+            }
+        }
+
+        async fn delete_campaign(&self, id: i32) -> Result<bool, AppError> {
+            let f = self.delete_campaign_fn.lock().unwrap();
+            if let Some(f) = &*f {
+                (f)(id)
+            } else {
+                panic!("MockCampaignRepository::delete_campaign was called without an expectation");
+            }
+        }
     }
 
     // Helper to build a Rocket instance for testing with a DonationService using mocked repositories
@@ -211,7 +239,7 @@ mod tests {
     }
 
     // Helper to create a sample donation for expected results
-    fn sample_donation(id: i32, user_id: i32, campaign_id: i32, amount: f64) -> Donation {
+    fn sample_donation(id: i32, user_id: i32, campaign_id: i32, amount: i64) -> Donation {
         Donation {
             id,
             user_id,
@@ -224,13 +252,17 @@ mod tests {
     
     // Helper to create a sample campaign for tests
     fn sample_campaign(id: i32, user_id: i32, name: &str, status: CampaignStatus) -> Campaign {
+        let now = Utc::now();
         Campaign {
             id,
             user_id,
             name: name.to_string(),
             description: "Sample campaign description".to_string(),
-            target_amount: 1000.0,
-            collected_amount: 0.0,
+            target_amount: 1000,
+            collected_amount: 0,
+            start_date: now, // Added
+            end_date: now + Duration::days(30), // Added - example: 30 days from now
+            image_url: Some("http://example.com/default_campaign_image.png".to_string()),
             status,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -249,7 +281,7 @@ mod tests {
 
         let expected_user_id_from_controller = 123; // Matches DUMMY_USER_ID in controller
         let expected_campaign_id = 1;
-        let expected_amount = 50.0;
+        let expected_amount = 50;
         let returned_donation = sample_donation(1, expected_user_id_from_controller, expected_campaign_id, expected_amount);
         
         // 1. Expect campaign_repo.get_campaign to be called by the service
@@ -322,7 +354,7 @@ mod tests {
             .header(ContentType::JSON)
             .json(&json!({
                 "campaign_id": non_existent_campaign_id,
-                "amount": 50.0,
+                "amount": 50,
                 "message": "For a ghost campaign"
             }))
             .dispatch();
@@ -348,7 +380,7 @@ mod tests {
         let response = client
             .post("/api/donations")
             .header(ContentType::JSON)
-            .json(&json!({ "campaign_id": 1, "amount": 0.0, "message": "Too small" }))
+            .json(&json!({ "campaign_id": 1, "amount": 0, "message": "Too small" }))
             .dispatch();
 
         assert_eq!(response.status(), Status::BadRequest);
@@ -442,7 +474,7 @@ mod tests {
             Ok(0) // Simulate 0 rows affected (e.g., user_id didn't match in a WHERE clause)
         });
 
-        let existing_donation = sample_donation(donation_id_exists, 456, 1, 50.0); // Owned by a different user
+        let existing_donation = sample_donation(donation_id_exists, 456, 1, 50); // Owned by a different user
         mock_donation_repo.expect_find_by_id({
             let ed = existing_donation.clone();
             move |d_id| {
@@ -474,8 +506,8 @@ mod tests {
 
         let campaign_id_to_query = 1;
         let donations_list = vec![
-            sample_donation(1, 10, campaign_id_to_query, 100.0),
-            sample_donation(2, 20, campaign_id_to_query, 200.0)
+            sample_donation(1, 10, campaign_id_to_query, 100),
+            sample_donation(2, 20, campaign_id_to_query, 200)
         ];
         
         mock_donation_repo.expect_find_by_campaign({
@@ -529,8 +561,8 @@ mod tests {
 
         let user_id_querying = 123; // DUMMY_USER_ID from controller
         let donations_list = vec![
-            sample_donation(1, user_id_querying, 1, 100.0),
-            sample_donation(2, user_id_querying, 2, 50.0)
+            sample_donation(1, user_id_querying, 1, 100),
+            sample_donation(2, user_id_querying, 2, 50)
         ];
 
         mock_donation_repo.expect_find_by_user({
