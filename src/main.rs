@@ -3,13 +3,8 @@ extern crate rocket;
 
 use backend::{
     controller::{
-        admin::routes::admin_routes,
-        donation::routes::donation_routes,
-        admin::notification_controller::catchers as notification_catchers,
-        campaign::routes::campaign_routes,
-    },
-    state::StateManagement,
-    db,
+        admin::{notification_controller::{catchers as notification_catchers, user_routes}, routes::admin_routes}, campaign::routes::campaign_routes, donation::routes::donation_routes
+    }, db, state::StateManagement
 };
 
 use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
@@ -53,8 +48,9 @@ async fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/", campaign_routes())
-        .mount("/admin", admin_routes())
-        .mount("/<campaign_id_placeholder>/donation", donation_routes())
+        .mount("/api/admin/notification", admin_routes())
+        .mount("/api/notification", user_routes())
+        .mount("/api/donation", donation_routes())
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
         .manage_state(app_state)
