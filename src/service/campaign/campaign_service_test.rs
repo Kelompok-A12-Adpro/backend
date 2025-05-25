@@ -84,4 +84,51 @@ mod tests {
         let updated = service.get_campaign(created.id).await.unwrap().unwrap();
         assert_eq!(updated.status, CampaignStatus::Active);
     }
+
+    #[tokio::test]
+    async fn delete_campaign() {
+        let repo = Arc::new(InMemoryCampaignRepository::new());
+        let factory = Arc::new(CampaignFactory::new());
+        let notifier = Arc::new(CampaignNotifier::new());
+        
+        let service = CampaignService::new(repo.clone(), factory, notifier);
+        
+        // Create test campaign
+        let created = service.create_campaign(
+            10,
+            "Test Campaign".to_string(),
+            "Test Description".to_string(),
+            5000.0,
+        ).await.unwrap();
+        
+        // Delete campaign
+        let result = service.delete_campaign(created.id).await;
+        
+        assert!(result.is_ok());
+        
+        // Verify campaign no longer exists
+        let deleted = service.get_campaign(created.id).await.unwrap();
+        assert!(deleted.is_none());
+
+        let campaigns_active = service.create_campaign(
+            10,
+            "Test Campaign".to_string(),
+            "Test Description".to_string(),
+            5000.0,
+        ).await.unwrap();
+
+        // Approve campaign
+        let approve = service.approve_campaign(campaigns_active.id).await;
+        assert!(approve.is_ok());
+
+        let result = service.delete_campaign(campaigns_active.id).await;
+        assert!(result.is_err(), "Campaign should not be deleted while active");
+
+        let deleted = service.get_campaign(campaigns_active.id).await.unwrap();
+        assert!(deleted.is_some(), "Campaign should still exist after failed deletion");
+
+        let deleted = deleted.unwrap();
+        assert_eq!(deleted.status, CampaignStatus::Active, "Campaign should still be active after failed deletion");
+    
+    }
 }
