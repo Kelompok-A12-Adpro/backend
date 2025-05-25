@@ -7,7 +7,7 @@ use chrono::Utc;
 
 #[async_trait]
 pub trait NotificationRepository: Send + Sync {
-    async fn create_notification(&self, notification: &CreateNotificationRequest) -> Result<Notification, AppError>;
+    async fn create_notification(&self, notification: &CreateNotificationRequest, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<Notification, AppError>;
     async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<String>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError>;
     async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError>;
     async fn get_notification_for_user(&self, user_email: String) -> Result<Vec<Notification>, AppError>;
@@ -28,7 +28,7 @@ impl DbNotificationRepository {
 
 #[async_trait]
 impl NotificationRepository for DbNotificationRepository {
-    async fn create_notification(&self, request: &CreateNotificationRequest) -> Result<Notification, AppError> {
+    async fn create_notification(&self, request: &CreateNotificationRequest, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<Notification, AppError> {
         // Validate the request
         validate_request(request).map_err(|e| AppError::ValidationError(e))?;
 
@@ -41,13 +41,6 @@ impl NotificationRepository for DbNotificationRepository {
             target_type: request.target_type.clone(),
         };
 
-        // Insert into the database using a transaction
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
         let result = sqlx::query!(
             "INSERT INTO notification (title, content, created_at, target_type)
             VALUES ($1, $2, $3, $4) RETURNING id",
@@ -56,27 +49,9 @@ impl NotificationRepository for DbNotificationRepository {
             notification.created_at.naive_utc(),
             notification.target_type.to_string(),
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-        let push = self.push_notification(
-            notification.target_type.clone(),
-            request.adt_detail.clone(),
-            result.id,
-            &mut tx
-        ).await;
-
-        if push.is_ok() && push.unwrap() {
-            tx.commit()
-            .await
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        } else {
-            tx.rollback()
-            .await
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-            return Err(AppError::ValidationError("Failed to push notification".to_string()));
-        }
 
         Ok(Notification {
             id: result.id,
@@ -136,23 +111,20 @@ impl NotificationRepository for DbNotificationRepository {
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        let notifications = sqlx::query!(
-            "SELECT * FROM notification"
-        )
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .into_iter()
-        .map(|row| Notification {
-            id: row.id,
-            title: row.title,
-            content: row.content,
-            created_at: row.created_at.and_utc(),
-            target_type: NotificationTargetType::from_string(
-                &row.target_type
-            ).unwrap_or(NotificationTargetType::AllUsers),
-        })
-        .collect();
+        let notifications = sqlx::query!("SELECT * FROM notification")
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            .into_iter()
+            .map(|row| Notification {
+                id: row.id,
+                title: row.title,
+                content: row.content,
+                created_at: row.created_at.and_utc(),
+                target_type: NotificationTargetType::from_string(&row.target_type)
+                    .unwrap_or(NotificationTargetType::AllUsers),
+            })
+            .collect();
 
         Ok(notifications)
     }
@@ -200,23 +172,20 @@ impl NotificationRepository for DbNotificationRepository {
             .acquire()
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        
-        let notification = sqlx::query!(
-            "SELECT * FROM notification WHERE id = $1",
-            notification_id
-        )
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .map(|row| Notification {
-            id: row.id,
-            title: row.title,
-            content: row.content,
-            created_at: row.created_at.and_utc(),
-            target_type: NotificationTargetType::from_string(
-                &row.target_type
-            ).unwrap_or(NotificationTargetType::AllUsers),
-        });
+
+        let notification =
+            sqlx::query!("SELECT * FROM notification WHERE id = $1", notification_id)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?
+                .map(|row| Notification {
+                    id: row.id,
+                    title: row.title,
+                    content: row.content,
+                    created_at: row.created_at.and_utc(),
+                    target_type: NotificationTargetType::from_string(&row.target_type)
+                        .unwrap_or(NotificationTargetType::AllUsers),
+                });
 
         Ok(notification)
     }
