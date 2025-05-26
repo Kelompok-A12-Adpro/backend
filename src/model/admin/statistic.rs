@@ -1,8 +1,28 @@
-pub struct DataStatistic {}
+use serde::{Deserialize, Serialize};
 
-pub struct TransactionData {}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DataStatistic {
+    pub active_campaigns_count: i32,
+    pub total_donations_amount: i64,
+    pub daily_transaction_count: i32,
+    pub weekly_transaction_count: i32,
+}
 
-pub struct RecentDonation {}
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransactionData {
+    pub name: String,
+    pub transactions: i32,
+    pub amount: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RecentDonation {
+    pub id: i32,
+    pub amount: i64,
+    pub campaign: String,
+    pub date: String,
+}
+
 
 #[cfg(test)]
 mod tests {
