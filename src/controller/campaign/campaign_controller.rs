@@ -184,6 +184,25 @@ async fn reject_campaign(
     }
 }
 
+#[derive(Deserialize)]
+pub struct CompleteCampaignRequest {
+    pub admin_id: i32,
+}
+
+#[put("/campaigns/<campaign_id>/complete", format = "json", data= "<_complete_req>")]
+async fn complete_campaign(
+    campaign_id: i32,
+    _complete_req: Json<CompleteCampaignRequest>,
+    service: &State<Arc<CampaignService>>
+) -> Result<Json<Campaign>, Status> {
+    match service.complete_campaign(campaign_id).await {
+        Ok(campaign) => Ok(Json(campaign)),
+        Err(AppError::NotFound(_)) => Err(Status::NotFound),
+        Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         create_campaign,
@@ -194,6 +213,7 @@ pub fn routes() -> Vec<rocket::Route> {
         get_all_campaigns,
         delete_campaign,
         update_campaign,
-        reject_campaign
+        reject_campaign,
+        complete_campaign
     ]
 }

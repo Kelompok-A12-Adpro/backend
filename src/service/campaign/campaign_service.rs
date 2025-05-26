@@ -168,16 +168,12 @@ impl CampaignService {
 
     pub async fn complete_campaign(&self, id: i32) -> Result<Campaign, AppError> {
         let mut campaign = self.fetch_or_404(id).await?;
-        let old_status = campaign.status.clone();
-
-        let mut state = Self::state_from_status(old_status.clone());
-        state = state.complete(&mut campaign)?;
-        let mut state = Self::state_from_status(campaign.status.clone());
-        state = state.complete(&mut campaign)?;
+        let state = Self::state_from_status(campaign.status.clone());
+        state.complete(&mut campaign)?;
 
         let updated = self.repository.update_campaign(campaign).await?;
         Ok(updated)
     }
     
-    // TODO: Add more methods for other state transitions...
+    // TODO: Add more methods if needed, such as for handling donations, evidence uploads, etc.
 }
