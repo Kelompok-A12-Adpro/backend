@@ -130,11 +130,26 @@ async fn get_user_campaigns(
         .map_err(|_| Status::InternalServerError)
 }
 
+#[get("/campaigns/user/<user_id>")]
+#[autometrics]
+async fn get_user_campaign_by_id(
+    user_id: i32,
+    user: AuthUser,
+    service: &State<Arc<CampaignService>>
+) -> Result<Json<Vec<Campaign>>, Status> {
+    service
+        .get_campaigns_by_user(user_id)
+        .await
+        .map(Json)
+        .map_err(|_| Status::InternalServerError)
+}
+
 #[derive(Deserialize)]
 pub struct ApproveCampaignRequest {
     pub admin_id: i32,
 }
 
+// TODO: need to implement proper authentication and authorization for admin actions
 #[put("/campaigns/<campaign_id>/approve", format = "json", data = "<_approve_req>")]
 async fn approve_campaign(
     campaign_id: i32,
@@ -149,14 +164,56 @@ async fn approve_campaign(
     }
 }
 
+#[derive(Deserialize)]
+pub struct RejectCampaignRequest {
+    pub admin_id: i32,
+    pub reason: Option<String>,
+}
+// TODO: need to implement proper authentication and authorization for admin actions
+#[put("/campaigns/<campaign_id>/reject", format = "json", data = "<reject_req>")]
+async fn reject_campaign(
+    campaign_id: i32,
+    reject_req: Json<RejectCampaignRequest>,
+    service: &State<Arc<CampaignService>>
+) -> Result<Json<Campaign>, Status> {
+    match service.reject_campaign(campaign_id, reject_req.reason.clone()).await {
+        Ok(campaign) => Ok(Json(campaign)),
+        Err(AppError::NotFound(_)) => Err(Status::NotFound),
+        Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CompleteCampaignRequest {
+    pub admin_id: i32,
+}
+
+#[put("/campaigns/<campaign_id>/complete", format = "json", data= "<_complete_req>")]
+async fn complete_campaign(
+    campaign_id: i32,
+    _complete_req: Json<CompleteCampaignRequest>,
+    service: &State<Arc<CampaignService>>
+) -> Result<Json<Campaign>, Status> {
+    match service.complete_campaign(campaign_id).await {
+        Ok(campaign) => Ok(Json(campaign)),
+        Err(AppError::NotFound(_)) => Err(Status::NotFound),
+        Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         create_campaign,
         get_campaign,
         get_user_campaigns,
+        get_user_campaign_by_id,
         approve_campaign,
         get_all_campaigns,
         delete_campaign,
         update_campaign,
+        reject_campaign,
+        complete_campaign
     ]
 }

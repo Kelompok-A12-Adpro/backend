@@ -116,7 +116,11 @@ impl CampaignService {
     }
     
     pub async fn get_campaigns_by_user(&self, user_id: i32) -> Result<Vec<Campaign>, AppError> {
-        self.repository.get_campaigns_by_user(user_id).await
+        match self.repository.get_campaigns_by_user(user_id).await {
+            Ok(campaigns) => Ok(campaigns),
+            Err(AppError::NotFound(_)) => Ok(Vec::new()), // Return empty vector if user has no campaigns
+            Err(e) => Err(e), // Propagate other errors
+        }
     }
     
     pub async fn get_campaigns_by_status(&self, status: CampaignStatus) -> Result<Vec<Campaign>, AppError> {
@@ -155,12 +159,8 @@ impl CampaignService {
 
     pub async fn reject_campaign(&self, id: i32, reason: Option<String>) -> Result<Campaign, AppError> {
         let mut campaign = self.fetch_or_404(id).await?;
-        let old_status = campaign.status.clone();
-
-        let mut state = Self::state_from_status(old_status.clone());
-        state = state.reject(&mut campaign)?;
-        let mut state = Self::state_from_status(campaign.status.clone());
-        state = state.reject(&mut campaign)?;
+        let state = Self::state_from_status(campaign.status.clone());
+        state.reject(&mut campaign)?;
 
         let updated = self.repository.update_campaign(campaign).await?;
         Ok(updated)
@@ -168,16 +168,12 @@ impl CampaignService {
 
     pub async fn complete_campaign(&self, id: i32) -> Result<Campaign, AppError> {
         let mut campaign = self.fetch_or_404(id).await?;
-        let old_status = campaign.status.clone();
-
-        let mut state = Self::state_from_status(old_status.clone());
-        state = state.complete(&mut campaign)?;
-        let mut state = Self::state_from_status(campaign.status.clone());
-        state = state.complete(&mut campaign)?;
+        let state = Self::state_from_status(campaign.status.clone());
+        state.complete(&mut campaign)?;
 
         let updated = self.repository.update_campaign(campaign).await?;
         Ok(updated)
     }
     
-    // TODO: Add more methods for other state transitions...
+    // TODO: Add more methods if needed, such as for handling donations, evidence uploads, etc.
 }
