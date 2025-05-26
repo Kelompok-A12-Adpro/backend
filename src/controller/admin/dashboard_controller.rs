@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rocket::{State, get, routes};
 use rocket::serde::json::Json;
 use crate::service::admin::platform_statistics_service::{StatisticService};
@@ -23,7 +25,7 @@ fn admin_check(auth_user: AuthUser) -> Result<(), AppError> {
 #[get("/statistics")]
 async fn get_statistics(
     auth_user: AuthUser,
-    statistic_service: &State<StatisticService>
+    statistic_service: &State<Arc<StatisticService>>
 ) -> Result<Json<ApiResponse<DataStatistic>>, AppError> {
     admin_check(auth_user)?;
 
@@ -39,7 +41,7 @@ async fn get_statistics(
 #[get("/statistics/daily-transactions")]
 async fn get_daily_transaction_statistics(
     auth_user: AuthUser,
-    service: &State<StatisticService>,
+    service: &State<Arc<StatisticService>>,
 ) -> Result<Json<ApiResponse<Vec<TransactionData>>>, AppError> {
     admin_check(auth_user)?;
 
@@ -55,7 +57,7 @@ async fn get_daily_transaction_statistics(
 #[get("/statistics/weekly-transactions")]
 async fn get_weekly_transaction_statistics(
     auth_user: AuthUser,
-    service: &State<StatisticService>,
+    service: &State<Arc<StatisticService>>,
 ) -> Result<Json<ApiResponse<Vec<TransactionData>>>, AppError> {
     admin_check(auth_user)?;
 
@@ -71,7 +73,7 @@ async fn get_weekly_transaction_statistics(
 #[get("/statistics/recent-transactions?<limit>")]
 async fn get_recent_transactions(
     auth_user: AuthUser,
-    service: &State<StatisticService>,
+    service: &State<Arc<StatisticService>>,
     limit: Option<i64>,
 ) -> Result<Json<ApiResponse<Vec<RecentDonation>>>, AppError> {
     admin_check(auth_user)?;

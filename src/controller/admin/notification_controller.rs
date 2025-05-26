@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::controller::auth::auth::AuthUser;
 use crate::errors::AppError;
 use crate::model::admin::notification::{
@@ -41,7 +43,7 @@ fn admin_check(auth_user: AuthUser) -> Result<(), AppError> {
 #[get("/notifications")]
 async fn get_notifications_admin(
     auth_user: AuthUser,
-    service: &State<NotificationService>,
+    service: &State<Arc<NotificationService>>,
 ) -> Result<Json<ApiResponse<Vec<Notification>>>, AppError> {
     admin_check(auth_user)?;
 
@@ -57,7 +59,7 @@ async fn get_notifications_admin(
 async fn create_notification(
     auth_user: AuthUser,
     notification_data: Json<CreateNotificationRequest>,
-    service: &State<NotificationService>,
+    service: &State<Arc<NotificationService>>,
 ) -> Result<Json<ApiResponse<Notification>>, AppError> {
     admin_check(auth_user)?;
 
@@ -84,7 +86,7 @@ async fn create_notification(
 #[delete("/notifications/<notification_id>")]
 async fn delete_notification(
     auth_user: AuthUser,
-    service: &State<NotificationService>,
+    service: &State<Arc<NotificationService>>,
     notification_id: i32,
 ) -> Result<Json<ApiResponse<String>>, AppError> {
     admin_check(auth_user)?;
@@ -113,7 +115,7 @@ async fn delete_notification(
 #[autometrics]
 async fn get_notifications(
     auth_user: AuthUser,
-    service: &State<NotificationService>,
+    service: &State<Arc<NotificationService>>,
 ) -> Json<ApiResponse<Vec<Notification>>> {
     let notifications = service
         .get_notifications_for_user(auth_user.email)
@@ -131,7 +133,7 @@ async fn get_notifications(
 #[autometrics]
 async fn subscribe_to_notification(
     auth_user: AuthUser,
-    service: &State<NotificationService>,
+    service: &State<Arc<NotificationService>>,
 ) -> Json<ApiResponse<String>> {
     let user_email = auth_user.email.clone();
 
@@ -153,7 +155,7 @@ async fn subscribe_to_notification(
 #[autometrics]
 async fn unsubscribe_from_notification(
     auth_user: AuthUser,
-    service: &State<NotificationService>,
+    service: &State<Arc<NotificationService>>,
 ) -> Json<ApiResponse<String>> {
     let user_email = auth_user.email.clone();
 
@@ -175,7 +177,7 @@ async fn unsubscribe_from_notification(
 #[autometrics]
 async fn delete_notification_user(
     auth_user: AuthUser,
-    service: &State<NotificationService>,
+    service: &State<Arc<NotificationService>>,
     notification_id: i32,
 ) -> Json<ApiResponse<String>> {
     match service
