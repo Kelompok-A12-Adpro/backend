@@ -85,129 +85,177 @@ impl PlatformStatisticsService {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-    use std::sync::{Arc};
-    use tokio;
+    use crate::db::get_test_pool;
+    use serial_test::serial;
 
-    // Mock StatisticsRepository for testing
-    struct MockStatsRepo {
-        active_campaigns: i32,
-        total_donations: f64,
-        registered_users: i32,
-        recent_users: Vec<RepoUserSummary>,
-        daily_transactions: i32,
-        weekly_transactions: i32,
-    }
-
-    impl MockStatsRepo {
-         // Helper to create a default mock instance
-        fn default() -> Self {
-            MockStatsRepo {
-                active_campaigns: 10,
-                total_donations: 5000.0,
-                registered_users: 100,
-                recent_users: vec![
-                    RepoUserSummary { id: 1, name: "user1".to_string(), phone: "088912841344".to_string() },
-                    RepoUserSummary { id: 2, name: "user2".to_string(), phone: "081645246324".to_string() },
-                ],
-                daily_transactions: 20,
-                weekly_transactions: 150,
-            }
-        }
-    }
-
-    #[async_trait]
-    impl StatisticsRepository for MockStatsRepo {
-        async fn get_active_campaigns_count(&self) -> Result<i32, AppError> {
-            Ok(self.active_campaigns)
-        }
-        async fn get_total_donations_amount(&self) -> Result<f64, AppError> {
-            Ok(self.total_donations)
-        }
-        async fn get_registered_users_count(&self) -> Result<i32, AppError> {
-            Ok(self.registered_users)
-        }
-        async fn get_recent_users(&self, limit: i32) -> Result<Vec<RepoUserSummary>, AppError> {
-            let count = limit.min(self.recent_users.len() as i32) as usize;
-            Ok(self.recent_users.iter().take(count).cloned().collect())
-        }
-        async fn get_daily_transaction_count(&self) -> Result<i32, AppError> {
-            Ok(self.daily_transactions)
-        }
-        async fn get_weekly_transaction_count(&self) -> Result<i32, AppError> {
-            Ok(self.weekly_transactions)
-        }
-    }
-
-    fn setup() -> (PlatformStatisticsService, Arc<MockStatsRepo>) {
-        let mock_repo = Arc::new(MockStatsRepo::default());
-        let service = PlatformStatisticsService::new(mock_repo.clone());
-        (service, mock_repo)
+    async fn clear_test_data(pool: &sqlx::PgPool) {
+        sqlx::query("TRUNCATE TABLE donations, campaigns RESTART IDENTITY CASCADE")
+            .execute(pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
-    async fn test_get_active_campaigns_count() {
-        let (service, mock_repo) = setup();
-        let expected_count = mock_repo.active_campaigns;
-        let count = service.get_active_campaigns_count().await.unwrap();
-        assert_eq!(count, expected_count);
+    #[serial]
+    async fn test_new() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool.clone());
+        assert_eq!(std::ptr::eq(&service.pool, &pool), false);
     }
 
     #[tokio::test]
-    async fn test_get_total_donations_amount() {
-        let (service, mock_repo) = setup();
-        let expected_amount = mock_repo.total_donations;
-        let amount = service.get_total_donations_amount().await.unwrap();
-        assert_eq!(amount, expected_amount);
+    #[serial]
+    async fn test_get_data_statistic_count_empty_db() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool);
+
+        let result = service.get_data_statistic_count().await.unwrap();
+        assert_eq!(result.active_campaigns_count, 0);
+        assert_eq!(result.total_donations_amount, 0);
+        assert_eq!(result.daily_transaction_count, 0);
+        assert_eq!(result.weekly_transaction_count, 0);
     }
 
     #[tokio::test]
-    async fn test_get_registered_users_count() {
-        let (service, mock_repo) = setup();
-        let expected_count = mock_repo.registered_users;
-        let count = service.get_registered_users_count().await.unwrap();
-        assert_eq!(count, expected_count);
+    #[serial]
+    async fn test_get_data_statistic_count_with_data() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool.clone());
+
+        // Insert test data with proper schema compliance
+        sqlx::query("INSERT INTO campaigns (user_id, name, description, target_amount, start_date, end_date, status) VALUES (1, 'Test Campaign', 'Test Description', 10000, NOW(), NOW() + INTERVAL '30 days', 'Active')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO donations (user_id, campaign_id, amount) VALUES (1, 1, 1000)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = service.get_data_statistic_count().await.unwrap();
+        assert_eq!(result.active_campaigns_count, 1);
+        assert_eq!(result.total_donations_amount, 1000);
     }
 
     #[tokio::test]
-    async fn test_get_recent_users_with_limit() {
-        let (service, mock_repo) = setup();
-        let limit = 1;
-        let users = service.get_recent_users(limit).await.unwrap();
-        assert_eq!(users.len(), limit as usize);
-        assert_eq!(users[0].id, mock_repo.recent_users[0].id); // Check mapping
-        assert_eq!(users[0].name, mock_repo.recent_users[0].name);
+    #[serial]
+    async fn test_get_daily_transaction_statistics_empty() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool);
+
+        let result = service.get_daily_transaction_statistics().await.unwrap();
+        assert_eq!(result.len(), 0);
     }
 
     #[tokio::test]
-    async fn test_get_recent_users_limit_exceeds() {
-        let (service, mock_repo) = setup();
-        let limit = 5; // More than available in mock
-        let users = service.get_recent_users(limit).await.unwrap();
-        assert_eq!(users.len(), mock_repo.recent_users.len());
+    #[serial]
+    async fn test_get_daily_transaction_statistics_with_data() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool.clone());
+
+        // Insert test data with recent timestamp
+        sqlx::query("INSERT INTO campaigns (user_id, name, description, target_amount, start_date, end_date, status) VALUES (1, 'Test Campaign', 'Test Description', 10000, NOW(), NOW() + INTERVAL '30 days', 'Active')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO donations (user_id, campaign_id, amount, created_at) VALUES (1, 1, 500, NOW())")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = service.get_daily_transaction_statistics().await.unwrap();
+        assert!(result.len() > 0);
     }
 
     #[tokio::test]
-    async fn test_get_transaction_statistics_daily() {
-        let (service, mock_repo) = setup();
-        let stats = service.get_transaction_statistics(StatisticsPeriod::Daily).await.unwrap();
-        assert_eq!(stats.period, StatisticsPeriod::Daily);
-        assert_eq!(stats.count, mock_repo.daily_transactions);
-        // TODO: Update assertion for total_amount when implemented properly
-        assert_eq!(stats.total_amount, 100.0); // Matches current placeholder
+    #[serial]
+    async fn test_get_weekly_transaction_statistics_empty() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool);
+
+        let result = service.get_weekly_transaction_statistics().await.unwrap();
+        assert_eq!(result.len(), 0);
     }
 
     #[tokio::test]
-    async fn test_get_transaction_statistics_weekly() {
-        let (service, mock_repo) = setup();
-        let stats = service.get_transaction_statistics(StatisticsPeriod::Weekly).await.unwrap();
-        assert_eq!(stats.period, StatisticsPeriod::Weekly);
-        assert_eq!(stats.count, mock_repo.weekly_transactions);
-         // TODO: Update assertion for total_amount when implemented properly
-        assert_eq!(stats.total_amount, 700.0); // Matches current placeholder
+    #[serial]
+    async fn test_get_weekly_transaction_statistics_with_data() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool.clone());
+
+        // Insert test data
+        sqlx::query("INSERT INTO campaigns (user_id, name, description, target_amount, start_date, end_date, status) VALUES (1, 'Test Campaign', 'Test Description', 10000, NOW(), NOW() + INTERVAL '30 days', 'Active')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO donations (user_id, campaign_id, amount, created_at) VALUES (1, 1, 750, NOW())")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = service.get_weekly_transaction_statistics().await.unwrap();
+        assert!(result.len() > 0);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_recent_transactions_with_default_limit() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool.clone());
+
+        // Insert test data
+        sqlx::query("INSERT INTO campaigns (user_id, name, description, target_amount, start_date, end_date, status) VALUES (1, 'Test Campaign', 'Test Description', 10000, NOW(), NOW() + INTERVAL '30 days', 'Active')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO donations (user_id, campaign_id, amount) VALUES (1, 1, 1000)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = service.get_recent_transactions(None).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].amount, 1000);
+        assert_eq!(result[0].campaign, "Test Campaign".to_string());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_recent_transactions_with_custom_limit() {
+        let pool = get_test_pool().await;
+        clear_test_data(&pool).await;
+        let service = StatisticService::new(pool.clone());
+
+        // Insert test data
+        sqlx::query("INSERT INTO campaigns (user_id, name, description, target_amount, start_date, end_date, status) VALUES (1, 'Test Campaign', 'Test Description', 10000, NOW(), NOW() + INTERVAL '30 days', 'Active')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for i in 1..=5 {
+            sqlx::query("INSERT INTO donations (user_id, campaign_id, amount) VALUES (1, 1, $1)")
+                .bind(i * 100)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let result = service.get_recent_transactions(Some(3)).await.unwrap();
+        assert_eq!(result.len(), 3);
     }
 }
