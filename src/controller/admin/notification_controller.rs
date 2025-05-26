@@ -5,7 +5,7 @@ use crate::errors::AppError;
 use crate::model::admin::notification::{
     CreateNotificationRequest, Notification,
 };
-use crate::service::notification::notification_service::NotificationService;
+use crate::service::admin::notification::notification_service::NotificationService;
 use autometrics::autometrics;
 use rocket::serde::json::Json;
 use rocket::{catch, delete, get, post, routes, State};
@@ -226,7 +226,7 @@ mod tests {
     use crate::model::admin::notification::NotificationTargetType;
     use crate::repository::admin::new_campaign_subs_repo::DbNewCampaignSubscriptionRepository;
     use crate::repository::admin::notification_repo::DbNotificationRepository;
-    use crate::service::notification::notification_observer::SubscriberService;
+    use crate::service::admin::notification::notification_observer::SubscriberService;
     use rocket::http::{ContentType, Status};
     use rocket::local::asynchronous::Client;
 

@@ -8,9 +8,9 @@ use crate::repository::donation::donation_repository::PgDonationRepository;
 use crate::repository::campaign::campaign_repository::PgCampaignRepository;
 
 use crate::service::campaign::factory::campaign_factory::CampaignFactory;
-use crate::service::notification::notification_observer::SubscriberService;
+use crate::service::admin::notification::notification_observer::SubscriberService;
 
-use crate::service::notification::notification_service::NotificationService;
+use crate::service::admin::notification::notification_service::NotificationService;
 use crate::service::admin::platform_statistics_service::StatisticService;
 use crate::service::donation::donation_service::DonationService;
 use crate::service::campaign::campaign_service::CampaignService;

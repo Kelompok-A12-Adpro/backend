@@ -2,7 +2,7 @@ use crate::errors::AppError;
 use crate::model::admin::notification::{CreateNotificationRequest, Notification};
 use crate::repository::admin::new_campaign_subs_repo::NewCampaignSubscriptionRepository;
 use crate::repository::admin::notification_repo::NotificationRepository;
-use crate::service::notification::notification_observer::NotificationObserver;
+use crate::service::admin::notification::notification_observer::NotificationObserver;
 use std::sync::Arc;
 
 pub struct NotificationService {
@@ -96,7 +96,7 @@ mod tests {
     use crate::model::admin::notification::{
         CreateNotificationRequest, Notification, NotificationTargetType,
     };
-    use crate::service::notification::notification_observer::NotificationObserver;
+    use crate::service::admin::notification::notification_observer::NotificationObserver;
     use chrono::Utc;
     use std::sync::{Arc, Mutex};
     use async_trait::async_trait;
