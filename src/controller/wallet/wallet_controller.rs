@@ -1,3 +1,4 @@
+use autometrics::autometrics;
 use rocket::{get, post, delete, routes, Route, State};
 use rocket::serde::json::Json;
 
@@ -38,6 +39,7 @@ pub struct WithdrawRequest {
 }
 
 #[get("/wallet/me")]
+#[autometrics]
 pub async fn get_my_wallet(
     auth_user: AuthUser,
     wallet_service: &State<WalletService>,
@@ -64,6 +66,7 @@ pub async fn top_up_wallet(
 }
 
 #[get("/wallet/transactions")]
+#[autometrics]
 pub async fn get_transactions(
     auth_user: AuthUser,
     wallet_service: &State<WalletService>,
@@ -83,6 +86,7 @@ pub async fn delete_transaction(
 }
 
 #[post("/wallet/withdraw", format = "json", data = "<req>")]
+#[autometrics]
 pub async fn withdraw_funds(
     auth_user: AuthUser,
     wallet_service: &State<WalletService>,

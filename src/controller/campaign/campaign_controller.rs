@@ -1,3 +1,4 @@
+use autometrics::autometrics;
 use chrono::{DateTime, Utc};
 use rocket::{State, get, post, put, delete, routes, uri};
 use rocket::serde::json::Json;

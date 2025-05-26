@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
+use autometrics::prometheus_exporter;
 use backend::{
     controller::{
         admin::{notification_controller::{catchers as notification_catchers, user_routes}, routes::admin_routes}, campaign::routes::campaign_routes, donation::routes::donation_routes
@@ -17,6 +18,11 @@ fn index() -> &'static str {
 #[catch(404)]
 fn not_found(req: &rocket::Request<'_>) -> String {
     format!("404: '{}' is not a valid route.", req.uri())
+}
+
+#[get("/metrics")]
+pub fn metrics() -> String {
+    prometheus_exporter::encode_to_string().unwrap()
 }
 
 #[launch]
@@ -48,9 +54,10 @@ async fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/", campaign_routes())
-        .mount("/api/admin/notification", admin_routes())
-        .mount("/api/notification", user_routes())
+        .mount("/api/admin", admin_routes())
+        .mount("/api", user_routes())
         .mount("/api/donation", donation_routes())
+        .mount("/api", routes![metrics])
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
         .manage_state(app_state)
