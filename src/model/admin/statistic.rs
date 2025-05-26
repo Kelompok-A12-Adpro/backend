@@ -8,7 +8,7 @@ pub struct DataStatistic {
     pub weekly_transaction_count: i32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionData {
     pub name: String,
     pub transactions: i32,
