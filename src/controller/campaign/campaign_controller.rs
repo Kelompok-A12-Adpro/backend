@@ -49,7 +49,6 @@ async fn create_campaign(
         campaign_req.image_url.clone(),
     ).await.map_err(|_| Status::InternalServerError)?;
 
-    // generate the correct URI, including any mount‐point (e.g. "/api")
     let location = uri!(get_campaign(campaign.id)).to_string();
     Ok(Created::new(location).body(Json(campaign)))
 }
