@@ -1,87 +1,102 @@
 use crate::errors::AppError;
-use serde::{Serialize, Deserialize};
-use std::sync::Arc;
+use crate::model::admin::statistic::{DataStatistic, RecentDonation, TransactionData};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PlatformStatistics {
-    pub active_campaigns_count: i32,
-    pub total_donations_amount: f64,
-    pub registered_users_count: i32,
-    pub daily_transaction_count: i32,
-    pub weekly_transaction_count: i32,
+pub struct StatisticService {
+    pub pool: sqlx::PgPool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct UserSummary {
-    pub id: i32,
-    pub name: String,
-    pub phone: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum StatisticsPeriod {
-    Daily,
-    Weekly,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TransactionStatistics {
-    pub count: i32,
-    pub total_amount: f64,
-    pub period: StatisticsPeriod,
-}
-
-pub struct PlatformStatisticsService {
-    stats_repo: Arc<dyn StatisticsRepository>,
-}
-
-impl PlatformStatisticsService {
-    pub fn new(stats_repo: Arc<dyn StatisticsRepository>) -> Self {
-        PlatformStatisticsService { stats_repo }
+impl StatisticService {
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        StatisticService { pool }
     }
 
-    pub async fn get_active_campaigns_count(&self) -> Result<i32, AppError> {
-        self.stats_repo.get_active_campaigns_count().await
+    pub async fn get_data_statistic_count(&self) -> Result<DataStatistic, AppError> {
+        let result =
+            sqlx::query_as!(
+                DataStatistic,
+                r#"
+                    SELECT
+                        COALESCE((SELECT COUNT(*) FROM campaigns WHERE status = 'Active'), 0) AS "active_campaigns_count!: i32",
+                        COALESCE((SELECT SUM(amount)::bigint FROM donations), 0) AS "total_donations_amount!: i64",
+                        COALESCE((SELECT COUNT(*) FROM donations WHERE created_at >= NOW() - INTERVAL '1 day'), 0) AS "daily_transaction_count!: i32",
+                        COALESCE((SELECT COUNT(*) FROM donations WHERE created_at >= NOW() - INTERVAL '7 days'), 0) AS "weekly_transaction_count!: i32"
+                "#
+            )
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result)
     }
 
-    pub async fn get_total_donations_amount(&self) -> Result<f64, AppError> {
-        self.stats_repo.get_total_donations_amount().await
+    pub async fn get_daily_transaction_statistics(&self) -> Result<Vec<TransactionData>, AppError> {
+        let result = sqlx::query_as!(
+            TransactionData,
+            r#"
+                SELECT
+                    TO_CHAR(DATE_TRUNC('hour', created_at), 'HH24:MI') AS "name!",
+                    COUNT(*)::int AS "transactions!",
+                    COALESCE(SUM(amount), 0)::bigint AS "amount!"
+                FROM donations
+                    WHERE created_at >= NOW() - INTERVAL '24 hour'
+                GROUP BY DATE_TRUNC('hour', created_at)
+                ORDER BY DATE_TRUNC('hour', created_at)
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result)
     }
 
-    pub async fn get_registered_users_count(&self) -> Result<i32, AppError> {
-        self.stats_repo.get_registered_users_count().await
+    pub async fn get_weekly_transaction_statistics(
+        &self,
+    ) -> Result<Vec<TransactionData>, AppError> {
+        let result = sqlx::query_as!(
+            TransactionData,
+            r#"
+            SELECT
+                TO_CHAR(DATE_TRUNC('day', created_at), 'FMDay') AS "name!",
+                COUNT(*)::int AS "transactions!",
+                COALESCE(SUM(amount), 0)::bigint AS "amount!"
+            FROM donations
+            WHERE created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY DATE_TRUNC('day', created_at)
+            ORDER BY DATE_TRUNC('day', created_at)
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result)
     }
 
-    pub async fn get_recent_users(&self, limit: i32) -> Result<Vec<UserSummary>, AppError> {
-        let repo_users = self.stats_repo.get_recent_users(limit).await?;
-        // Map from repository model to service model
-        let service_users = repo_users.into_iter().map(|repo_user| UserSummary {
-            id: repo_user.id,
-            name: repo_user.name,
-            phone: repo_user.phone
-        }).collect();
-        Ok(service_users)
-    }
+    pub async fn get_recent_transactions(
+        &self,
+        limit: Option<i64>,
+    ) -> Result<Vec<RecentDonation>, AppError> {
+        let result = sqlx::query_as!(
+            RecentDonation,
+            r#"
+                SELECT
+                    d.id AS "id!: i32",
+                    d.amount AS "amount!: i64",
+                    c.name AS "campaign!",
+                    TO_CHAR(d.created_at, 'YYYY-MM-DD') AS "date!"
+                FROM donations d
+                    LEFT JOIN campaigns c ON d.campaign_id = c.id
+                ORDER BY d.created_at DESC
+                LIMIT $1
+            "#,
+            limit.unwrap_or(10000) // Default to 10,000 if no limit is provided
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    pub async fn get_transaction_statistics(&self, period: StatisticsPeriod) -> Result<TransactionStatistics, AppError> {
-        let (count, total_amount) = match period {
-            StatisticsPeriod::Daily => {
-                let daily_count = self.stats_repo.get_daily_transaction_count().await?;
-                // Hardcoded total_amount based on test expectation
-                (daily_count, 100.0)
-            },
-            StatisticsPeriod::Weekly => {
-                let weekly_count = self.stats_repo.get_weekly_transaction_count().await?;
-                // Hardcoded total_amount based on test expectation
-                (weekly_count, 700.0)
-            },
-        };
-
-        Ok(TransactionStatistics {
-            count,
-            total_amount,
-            period,
-        })
+        Ok(result)
     }
 }
 
