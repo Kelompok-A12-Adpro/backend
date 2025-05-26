@@ -1,8 +1,22 @@
 use crate::errors::AppError;
-use chrono::{DateTime, Utc};
-use crate::repository::admin::statistics_repo::StatisticsRepository;
+use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PlatformStatistics {
+    pub active_campaigns_count: i32,
+    pub total_donations_amount: f64,
+    pub registered_users_count: i32,
+    pub daily_transaction_count: i32,
+    pub weekly_transaction_count: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserSummary {
+    pub id: i32,
+    pub name: String,
+    pub phone: String,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatisticsPeriod {
@@ -15,15 +29,6 @@ pub struct TransactionStatistics {
     pub count: i32,
     pub total_amount: f64,
     pub period: StatisticsPeriod,
-}
-
-// Represents a user summary for the dashboard
-#[derive(Debug, Clone, PartialEq)]
-pub struct UserSummary {
-    pub id: i32,
-    pub username: String,
-    pub registration_date: DateTime<Utc>,
-    pub user_type: String, // "Fundraiser" or "Donatur"
 }
 
 pub struct PlatformStatisticsService {
@@ -52,9 +57,8 @@ impl PlatformStatisticsService {
         // Map from repository model to service model
         let service_users = repo_users.into_iter().map(|repo_user| UserSummary {
             id: repo_user.id,
-            username: repo_user.username,
-            registration_date: repo_user.registration_date,
-            user_type: repo_user.user_type,
+            name: repo_user.name,
+            phone: repo_user.phone
         }).collect();
         Ok(service_users)
     }
@@ -85,10 +89,8 @@ impl PlatformStatisticsService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::admin::statistics::RecentUser as RepoRecentUser; // Alias repo model
-    use crate::repository::admin::statistics_repo::StatisticsRepository;
     use async_trait::async_trait;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc};
     use tokio;
 
     // Mock StatisticsRepository for testing
@@ -96,7 +98,7 @@ mod tests {
         active_campaigns: i32,
         total_donations: f64,
         registered_users: i32,
-        recent_users: Vec<RepoRecentUser>,
+        recent_users: Vec<RepoUserSummary>,
         daily_transactions: i32,
         weekly_transactions: i32,
     }
@@ -109,8 +111,8 @@ mod tests {
                 total_donations: 5000.0,
                 registered_users: 100,
                 recent_users: vec![
-                    RepoRecentUser { id: 1, username: "user1".to_string(), registration_date: Utc::now(), user_type: "Donor".to_string() },
-                    RepoRecentUser { id: 2, username: "user2".to_string(), registration_date: Utc::now(), user_type: "Fundraiser".to_string() },
+                    RepoUserSummary { id: 1, name: "user1".to_string(), phone: "088912841344".to_string() },
+                    RepoUserSummary { id: 2, name: "user2".to_string(), phone: "081645246324".to_string() },
                 ],
                 daily_transactions: 20,
                 weekly_transactions: 150,
@@ -129,7 +131,7 @@ mod tests {
         async fn get_registered_users_count(&self) -> Result<i32, AppError> {
             Ok(self.registered_users)
         }
-        async fn get_recent_users(&self, limit: i32) -> Result<Vec<RepoRecentUser>, AppError> {
+        async fn get_recent_users(&self, limit: i32) -> Result<Vec<RepoUserSummary>, AppError> {
             let count = limit.min(self.recent_users.len() as i32) as usize;
             Ok(self.recent_users.iter().take(count).cloned().collect())
         }
@@ -178,7 +180,7 @@ mod tests {
         let users = service.get_recent_users(limit).await.unwrap();
         assert_eq!(users.len(), limit as usize);
         assert_eq!(users[0].id, mock_repo.recent_users[0].id); // Check mapping
-        assert_eq!(users[0].username, mock_repo.recent_users[0].username);
+        assert_eq!(users[0].name, mock_repo.recent_users[0].name);
     }
 
     #[tokio::test]

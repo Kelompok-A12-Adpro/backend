@@ -443,7 +443,7 @@ mod tests {
         
         match result.err().unwrap() {
             AppError::ValidationError(msg) => {
-                assert_eq!(msg, "Observer failed");
+                assert_eq!(msg, "Observer failed: Validation error: Observer failed");
             }
             _ => panic!("Expected ValidationError"),
         }
