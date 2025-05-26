@@ -57,118 +57,97 @@ pub fn routes() -> Vec<rocket::Route> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rocket::local::blocking::Client;
+    use rocket::local::asynchronous::Client;
     use rocket::http::{Status, ContentType};
-    use crate::model::admin::statistics::{PlatformStatistics, UserSummary};
-    use crate::service::admin::platform_statistics_service::{PlatformStatisticsService};
-    use crate::repository::admin::statistics_repo::StatisticsRepository;
-    use crate::model::admin::statistics::UserSummary as RepoUserSummary;
-    use crate::errors::AppError;
-    use async_trait::async_trait;
-    use std::sync::Arc;
-
-    // --- Mock Dependencies ---
-
-    // Mock StatisticsRepository
-    struct MockStatsRepo {
-        active_campaigns: i32,
-        total_donations: f64,
-        registered_users: i32,
-        recent_users: Vec<RepoUserSummary>,
-        daily_transactions: i32,
-        weekly_transactions: i32,
-    }
-
-    impl MockStatsRepo {
-        fn default() -> Self {
-            MockStatsRepo {
-                active_campaigns: 10,
-                total_donations: 5000.0,
-                registered_users: 100,
-                recent_users: vec![
-                    RepoUserSummary { id: 1, name: "user1".to_string(), phone: "123456789014".to_string() },
-                    RepoUserSummary { id: 2, name: "user2".to_string(), phone: "098765432113".to_string() },
-                    RepoUserSummary { id: 3, name: "user3".to_string(), phone: "088902068861".to_string() },
-                ],
-                daily_transactions: 20,
-                weekly_transactions: 150,
-            }
-        }
-    }
-
-    #[async_trait]
-    impl StatisticsRepository for MockStatsRepo {
-        async fn get_active_campaigns_count(&self) -> Result<i32, AppError> { Ok(self.active_campaigns) }
-        async fn get_total_donations_amount(&self) -> Result<f64, AppError> { Ok(self.total_donations) }
-        async fn get_registered_users_count(&self) -> Result<i32, AppError> { Ok(self.registered_users) }
-        async fn get_recent_users(&self, limit: i32) -> Result<Vec<RepoUserSummary>, AppError> {
-            let count = limit.min(self.recent_users.len() as i32) as usize;
-            Ok(self.recent_users.iter().take(count).cloned().collect())
-        }
-        async fn get_daily_transaction_count(&self) -> Result<i32, AppError> { Ok(self.daily_transactions) }
-        async fn get_weekly_transaction_count(&self) -> Result<i32, AppError> { Ok(self.weekly_transactions) }
-    }
-
-    // --- Test Setup ---
+    use crate::db::get_test_pool;
+    use crate::service::admin::platform_statistics_service::StatisticService;
 
     // Helper to build Rocket instance with mock service
-    fn rocket() -> rocket::Rocket<rocket::Build> {
-        let mock_repo = Arc::new(MockStatsRepo::default());
-        let mock_service = PlatformStatisticsService::new(mock_repo);
+    async fn rocket() -> rocket::Rocket<rocket::Build> {
+        let mock_service = StatisticService::new(get_test_pool().await);
 
         rocket::build()
             .mount("/admin", routes()) // Assuming routes are mounted under /admin
-            .manage(mock_service) // Manage the mock service state
+            .manage(mock_service)
     }
 
-    // --- Tests ---
-
-    #[test]
-    fn test_get_dashboard_statistics_success() {
-        let client = Client::tracked(rocket()).expect("valid rocket instance");
-        let response = client.get("/admin/dashboard/statistics").dispatch();
+    #[tokio::test]
+    async fn test_get_statistics_success() {
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        let response = client.get("/admin/statistics").dispatch().await;
 
         assert_eq!(response.status(), Status::Ok);
         assert_eq!(response.content_type(), Some(ContentType::JSON));
 
-        let stats: PlatformStatistics = response.into_json().expect("Failed to deserialize response");
+        let stats: ApiResponse<DataStatistic> = response.into_json().await.expect("Failed to deserialize response");
 
-        assert_eq!(stats.active_campaigns_count, 10); // Expected value from mock repo via service
-        assert_eq!(stats.total_donations_amount, 5000.0); // Expected value
-        assert_eq!(stats.registered_users_count, 100); // Expected value
-        assert_eq!(stats.daily_transaction_count, 20); // Expected value
-        assert_eq!(stats.weekly_transaction_count, 150); // Expected value
+        let data_stats = stats.data.expect("Expected data to be present");
+        
+        assert!(stats.success);
+        assert_eq!(stats.message, "Dashboard statistics retrieved successfully");
+        assert!(data_stats.active_campaigns_count >= 0);
+        assert!(data_stats.total_donations_amount >= 0);
+        assert!(data_stats.daily_transaction_count >= 0);
+        assert!(data_stats.weekly_transaction_count >= 0);
     }
 
-    #[test]
-    fn test_get_recent_users_default_limit() {
-        let client = Client::tracked(rocket()).expect("valid rocket instance");
-        let response = client.get("/admin/dashboard/recent-users").dispatch();
+    #[tokio::test]
+    async fn test_get_daily_transaction_statistics_success() {
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        let response = client.get("/admin/statistics/daily-transactions").dispatch().await;
 
         assert_eq!(response.status(), Status::Ok);
         assert_eq!(response.content_type(), Some(ContentType::JSON));
 
-        let users: Vec<UserSummary> = response.into_json().expect("Failed to deserialize response");
-
-        let expected_users_count = 3; // Default limit might be 5 or 10 in real service, mock has 3
-        assert_eq!(users.len(), expected_users_count);
-        assert_eq!(users[0].id, 1);
-        assert_eq!(users[1].id, 2);
+        let result: ApiResponse<Vec<TransactionData>> = response.into_json().await.expect("Failed to deserialize response");
+        
+        assert!(result.success);
+        assert_eq!(result.message, "Daily transaction statistics retrieved successfully");
+        assert!(result.data.is_some());
     }
 
-    #[test]
-    fn test_get_recent_users_with_limit() {
-        let client = Client::tracked(rocket()).expect("valid rocket instance");
-        let limit = 2;
-        let response = client.get(format!("/admin/dashboard/recent-users?limit={}", limit)).dispatch();
+    #[tokio::test]
+    async fn test_get_weekly_transaction_statistics_success() {
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        let response = client.get("/admin/statistics/weekly-transactions").dispatch().await;
 
         assert_eq!(response.status(), Status::Ok);
         assert_eq!(response.content_type(), Some(ContentType::JSON));
 
-        let users: Vec<UserSummary> = response.into_json().expect("Failed to deserialize response");
+        let result: ApiResponse<Vec<TransactionData>> = response.into_json().await.expect("Failed to deserialize response");
+        
+        assert!(result.success);
+        assert_eq!(result.message, "Weekly transaction statistics retrieved successfully");
+        assert!(result.data.is_some());
+    }
 
-        assert_eq!(users.len(), limit);
-        assert_eq!(users[0].id, 1);
-        assert_eq!(users[1].id, 2);
+    #[tokio::test]
+    async fn test_get_recent_transactions_success() {
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        let response = client.get("/admin/statistics/recent-transactions").dispatch().await;
+
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.content_type(), Some(ContentType::JSON));
+
+        let result: ApiResponse<Vec<RecentDonation>> = response.into_json().await.expect("Failed to deserialize response");
+        
+        assert!(result.success);
+        assert_eq!(result.message, "Recent transactions retrieved successfully");
+        assert!(result.data.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_recent_transactions_with_limit() {
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        let response = client.get("/admin/statistics/recent-transactions?limit=5").dispatch().await;
+
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.content_type(), Some(ContentType::JSON));
+
+        let result: ApiResponse<Vec<RecentDonation>> = response.into_json().await.expect("Failed to deserialize response");
+        
+        assert!(result.success);
+        assert_eq!(result.message, "Recent transactions retrieved successfully");
+        assert!(result.data.is_some());
     }
 }
