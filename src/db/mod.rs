@@ -22,7 +22,7 @@ pub async fn init_pool() -> PgPool {
         .expect("DATABASE_URL must be set");
 
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(20)
         .acquire_timeout(Duration::from_secs(3))
         .connect(&database_url)
         .await
@@ -57,7 +57,7 @@ pub async fn init_test_pool() -> PgPool {
         .expect("TEST_DATABASE_URL must be set");
 
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(20)
         .acquire_timeout(Duration::from_secs(3))
         .connect(&database_url)
         .await
