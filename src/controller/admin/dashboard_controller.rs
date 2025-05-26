@@ -1,56 +1,96 @@
 use rocket::{State, get, routes};
 use rocket::serde::json::Json;
-use crate::service::admin::platform_statistics_service::PlatformStatisticsService;
-use crate::model::admin::statistics::{PlatformStatistics, UserSummary};
+use crate::service::admin::platform_statistics_service::{StatisticService};
+use crate::model::admin::statistic::{DataStatistic, RecentDonation, TransactionData};
 use crate::errors::AppError;
+use crate::controller::auth::auth::AuthUser;
+use serde::{Deserialize, Serialize};
 
-// Placeholder for authentication
-struct AuthUser {
-    id: i32,
-    is_admin: bool,
+#[derive(Serialize, Deserialize)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    pub message: String,
+    pub data: Option<T>,
 }
 
-#[get("/dashboard/statistics")]
-async fn get_dashboard_statistics(
-    statistics_service: &State<PlatformStatisticsService>
-) -> Result<Json<PlatformStatistics>, AppError> {
-    let active_campaigns = statistics_service.get_active_campaigns_count().await?;
-    let total_donations = statistics_service.get_total_donations_amount().await?;
-    let registered_users = statistics_service.get_registered_users_count().await?;
-    let daily_transactions = 20; // Placeholder for daily transactions
-    let weekly_transactions = 150; // Placeholder for weekly transactions
+fn admin_check(auth_user: AuthUser) -> Result<(), AppError> {
+    if !auth_user.is_admin {
+        return Err(AppError::Unauthorized);
+    }
+    Ok(())
+}
 
-    Ok(Json(PlatformStatistics {
-        active_campaigns_count: active_campaigns,
-        total_donations_amount: total_donations,
-        registered_users_count: registered_users,
-        daily_transaction_count: daily_transactions,
-        weekly_transaction_count: weekly_transactions
+#[get("/statistics")]
+async fn get_statistics(
+    auth_user: AuthUser,
+    statistic_service: &State<StatisticService>
+) -> Result<Json<ApiResponse<DataStatistic>>, AppError> {
+    admin_check(auth_user)?;
+
+    let data_stats = statistic_service.get_data_statistic_count().await?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Dashboard statistics retrieved successfully".to_string(),
+        data: Some(data_stats),
     }))
 }
 
-#[get("/dashboard/recent-users?<limit>")]
-async fn get_recent_users(
-    statistics_service: &State<PlatformStatisticsService>,
-    limit: Option<i32>
-) -> Result<Json<Vec<UserSummary>>, AppError> {
-    let limit_value = limit.unwrap_or(10);
-    let user_summaries = statistics_service.get_recent_users(limit_value).await?;
-    let recent_users: Vec<UserSummary> = user_summaries
-        .into_iter()
-        .map(|summary| UserSummary {
-            id: summary.id,
-            name: summary.name,
-            phone: summary.phone,
-        })
-        .collect();
-    Ok(Json(recent_users))
+#[get("/statistics/daily-transactions")]
+async fn get_daily_transaction_statistics(
+    auth_user: AuthUser,
+    service: &State<StatisticService>,
+) -> Result<Json<ApiResponse<Vec<TransactionData>>>, AppError> {
+    admin_check(auth_user)?;
+
+    let transactions = service.get_daily_transaction_statistics().await?;
+    
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Daily transaction statistics retrieved successfully".to_string(),
+        data: Some(transactions),
+    }))
+}
+
+#[get("/statistics/weekly-transactions")]
+async fn get_weekly_transaction_statistics(
+    auth_user: AuthUser,
+    service: &State<StatisticService>,
+) -> Result<Json<ApiResponse<Vec<TransactionData>>>, AppError> {
+    admin_check(auth_user)?;
+
+    let transactions = service.get_weekly_transaction_statistics().await?;
+    
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Weekly transaction statistics retrieved successfully".to_string(),
+        data: Some(transactions),
+    }))
+}
+
+#[get("/statistics/recent-transactions?<limit>")]
+async fn get_recent_transactions(
+    auth_user: AuthUser,
+    service: &State<StatisticService>,
+    limit: Option<i64>,
+) -> Result<Json<ApiResponse<Vec<RecentDonation>>>, AppError> {
+    admin_check(auth_user)?;
+
+    let transactions = service.get_recent_transactions(limit).await?;
+    
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Recent transactions retrieved successfully".to_string(),
+        data: Some(transactions),
+    }))
 }
 
 pub fn routes() -> Vec<rocket::Route> {
     routes![
-        get_dashboard_statistics,
-        get_recent_users
+        get_statistics,
+        get_daily_transaction_statistics,
+        get_weekly_transaction_statistics,
+        get_recent_transactions
     ]
 }
 
