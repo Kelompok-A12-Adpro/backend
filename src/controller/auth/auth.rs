@@ -4,7 +4,6 @@ use rocket::http::Status;
 use serde::Deserialize;
 use jsonwebtoken::{decode, DecodingKey, Validation};
 
-use auth::repository::user_repository::find_user_by_email;
 #[derive(Deserialize)]
 struct Claims { 
     sub: i32, // User ID
