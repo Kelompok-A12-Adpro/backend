@@ -1,4 +1,4 @@
-pub mod dashboard_controller;
+// pub mod dashboard_controller;
 pub mod campaign_admin_controller;
 pub mod transaction_admin_controller;
 pub mod user_admin_controller;
