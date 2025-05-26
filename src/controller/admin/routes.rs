@@ -5,8 +5,6 @@ pub fn admin_routes() -> Vec<rocket::Route> {
     
     // routes.extend(super::dashboard_controller::routes());
     routes.extend(super::campaign_admin_controller::routes());
-    routes.extend(super::transaction_admin_controller::routes());
-    routes.extend(super::user_admin_controller::routes());
     routes.extend(super::fund_usage_controller::routes());
     routes.extend(super::notification_controller::admin_routes());
     
