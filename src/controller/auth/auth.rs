@@ -12,12 +12,14 @@ struct Claims {
     is_admin: bool
 }
 
+#[derive(Debug, Clone)]
 pub struct AuthUser { 
     pub id: i32,
     pub email: String,
     pub is_admin: bool,
 }
 
+#[cfg(not(feature = "test-mode"))]
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
@@ -43,5 +45,19 @@ impl<'r> FromRequest<'r> for AuthUser {
             }
             Err(_) => Outcome::Forward(Status::Unauthorized),
         }
+    }
+}
+
+// Test only!!!
+#[cfg(feature = "test-mode")]
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for AuthUser {
+    type Error = ();
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        Outcome::Success(AuthUser {
+            id: 1,
+            email: "admin@example.com".to_string(),
+            is_admin: true,
+        })
     }
 }

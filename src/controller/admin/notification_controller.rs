@@ -226,7 +226,7 @@ mod tests {
     use crate::repository::admin::notification_repo::DbNotificationRepository;
     use crate::service::notification::notification_observer::SubscriberService;
     use rocket::http::{ContentType, Status};
-    use rocket::local::blocking::Client;
+    use rocket::local::asynchronous::Client;
 
     async fn rocket() -> rocket::Rocket<rocket::Build> {
         let pool = get_test_pool().await;
@@ -239,119 +239,156 @@ mod tests {
         let subscriber_service = Arc::new(SubscriberService::new(notification_repo.clone()));
         
         // Services
-        let notification_service = Arc::new(NotificationService::new(
+        let notification_service = NotificationService::new(
             notification_repo,
             new_campaign_subs_repo,
             subscriber_service.clone(),
-        ));
+        );
 
         rocket::build()
             .mount("/admin", admin_routes())
             .mount("/user", user_routes())
             .register("/", catchers())
             .manage(notification_service)
-            .manage(AuthUser {
-                id: 1,
-                email: "da@gmail.com".to_string(),
-                is_admin: false,
-            })
-            .manage(AuthUser {
-                id: 2,
-                email: "admin@mail.com".to_string(),
-                is_admin: true,
-            })
     }
 
     #[tokio::test]
     async fn test_get_notifications() {
-        let client = Client::tracked(rocket().await).expect("valid rocket instance");
-        let response = client.get("/admin/notifications").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert_eq!(response.content_type(), Some(ContentType::JSON));
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
 
-        let body = response.into_string().unwrap();
-        let notifications: Vec<Notification> =
-            serde_json::from_str(&body).expect("valid notification json");
-        assert!(notifications.len() > 1);
-    }
-
-    #[tokio::test]
-    async fn test_create_notification_success() {
-        let client = Client::tracked(rocket().await).expect("valid rocket instance");
         let notification_data = CreateNotificationRequest {
             title: "Test Title".to_string(),
             content: "Test Content".to_string(),
             target_type: NotificationTargetType::AllUsers,
             adt_detail: None,
         };
+
         let response = client
             .post("/admin/notifications")
             .header(ContentType::JSON)
             .body(serde_json::to_string(&notification_data).unwrap())
-            .dispatch();
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+
+        let response = client.get("/admin/notifications").dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.content_type(), Some(ContentType::JSON));
+
+        let body = response.into_string().await.unwrap();
+        let api_response: ApiResponse<Vec<Notification>> =
+            serde_json::from_str(&body).expect("valid notification json");
+        let notifications = api_response.data.unwrap_or_default();
+        assert!(notifications.len() > 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_notification_success() {
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        let notification_data = CreateNotificationRequest {
+            title: "Test Title".to_string(),
+            content: "Test Content".to_string(),
+            target_type: NotificationTargetType::AllUsers,
+            adt_detail: None,
+        };
+
+        let response = client
+            .post("/admin/notifications")
+            .header(ContentType::JSON)
+            .body(serde_json::to_string(&notification_data).unwrap())
+            .dispatch()
+            .await;
 
         assert_eq!(response.status(), Status::Ok);
         assert_eq!(response.content_type(), Some(ContentType::JSON));
-        let body = response.into_string().unwrap();
-        let created_notification: Notification =
+        
+        let body = response.into_string().await.unwrap();
+        let api_response: ApiResponse<Notification> =
             serde_json::from_str(&body).expect("valid notification json");
+        let created_notification = api_response.data.unwrap();
+        
         assert_eq!(created_notification.title, "Test Title");
         assert_eq!(created_notification.content, "Test Content");
-        assert_eq!(created_notification.id, 1);
+        assert!(created_notification.id > 0);
     }
 
     #[tokio::test]
     async fn test_create_notification_validation_error() {
-        let client = Client::tracked(rocket().await).expect("valid rocket instance");
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
         let notification_data = CreateNotificationRequest {
             title: "".to_string(), // Empty title to trigger validation error
             content: "Test Content".to_string(),
             target_type: NotificationTargetType::AllUsers,
             adt_detail: None,
         };
+
         let response = client
             .post("/admin/notifications")
             .header(ContentType::JSON)
             .body(serde_json::to_string(&notification_data).unwrap())
-            .dispatch();
+            .dispatch()
+            .await;
 
         assert_eq!(response.status(), Status::BadRequest);
         assert!(response
             .into_string()
+            .await
             .unwrap()
             .contains("Title and content cannot be empty"));
     }
 
     #[tokio::test]
     async fn test_delete_notification_success() {
-        let client = Client::tracked(rocket().await).expect("valid rocket instance");
-        // Assuming notification with ID 1 exists or the endpoint doesn't check
-        let response = client.delete("/admin/notifications/1").dispatch();
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        
+        let notification_data = CreateNotificationRequest {
+            title: "Test Title".to_string(),
+            content: "Test Content".to_string(),
+            target_type: NotificationTargetType::AllUsers,
+            adt_detail: None,
+        };
 
-        // Placeholder returns Ok(()) which maps to Status::Ok with no body
+        let response = client
+            .post("/admin/notifications")
+            .header(ContentType::JSON)
+            .body(serde_json::to_string(&notification_data).unwrap())
+            .dispatch()
+            .await;
+
         assert_eq!(response.status(), Status::Ok);
-        assert!(response.into_string().unwrap_or_default().is_empty());
+
+        let response = client.delete("/admin/notifications/1").dispatch().await;
+
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.content_type(), Some(ContentType::JSON));
+        
+        let body = response.into_string().await.unwrap();
+        let api_response: ApiResponse<String> = serde_json::from_str(&body).expect("valid json response");
+        assert_eq!(api_response.success, true);
+        assert_eq!(api_response.message, "Notification deleted successfully");
     }
 
     #[tokio::test]
     async fn test_delete_notification_not_found() {
-        let client = Client::tracked(rocket().await).expect("valid rocket instance");
-        let response = client.delete("/admin/notifications/-1").dispatch();
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
+        let response = client.delete("/admin/notifications/-1").dispatch().await;
         assert_eq!(response.status(), Status::NotFound);
     }
 
     #[tokio::test]
     async fn test_invalid_json_payload() {
-        let client = Client::tracked(rocket().await).expect("valid rocket instance");
+        let client = Client::tracked(rocket().await).await.expect("valid rocket instance");
         let response = client
             .post("/admin/notifications")
             .header(ContentType::JSON)
             .body(r#"{"title": "Test", invalid json}"#)
-            .dispatch();
+            .dispatch()
+            .await;
 
         assert_eq!(response.status(), Status::BadRequest);
 
-        let body = response.into_string().unwrap();
+        let body = response.into_string().await.unwrap();
         println!("Response body: {}", body);
         assert!(body.contains("Bad Request"));
     }
