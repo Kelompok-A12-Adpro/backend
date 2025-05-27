@@ -8,4 +8,6 @@
 \i sql/migrations/enable_dblink.sql
 \i sql/migrations/notification.sql
 \i sql/migrations/campaigns.sql
+\i sql/migrations/wallet.sql
+\i sql/migrations/transaction.sql
 -- \i sql/migrations/other_table.sql

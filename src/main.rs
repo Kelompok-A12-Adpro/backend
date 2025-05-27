@@ -4,7 +4,7 @@ extern crate rocket;
 use autometrics::prometheus_exporter;
 use backend::{
     controller::{
-        admin::{notification_controller::{catchers as notification_catchers, user_routes}, routes::admin_routes}, campaign::routes::campaign_routes, donation::routes::donation_routes
+        admin::{notification_controller::{catchers as notification_catchers, user_routes}, routes::admin_routes}, campaign::routes::campaign_routes, donation::routes::donation_routes, wallet::wallet_controller::wallet_routes
     }, db, state::StateManagement
 };
 
@@ -50,6 +50,8 @@ async fn rocket() -> _ {
 
     // Initialize all application state
     let app_state = backend::state::init_state(pool).await;
+
+    
     
     rocket::build()
         .mount("/", routes![index])
@@ -62,4 +64,5 @@ async fn rocket() -> _ {
         .register("/admin", notification_catchers())
         .manage_state(app_state)
         .attach(cors)
+        .mount("/", wallet_routes())
 }

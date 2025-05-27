@@ -7,12 +7,16 @@ use crate::repository::admin::new_campaign_subs_repo::DbNewCampaignSubscriptionR
 use crate::repository::donation::donation_repository::PgDonationRepository;
 use crate::repository::campaign::campaign_repository::PgCampaignRepository;
 
+
+use crate::repository::wallet::transaction_repository::PgTransactionRepository;
+use crate::repository::wallet::wallet_repository::PgWalletRepository;
 use crate::service::campaign::factory::campaign_factory::CampaignFactory;
 use crate::service::notification::notification_observer::SubscriberService;
 
 use crate::service::notification::notification_service::NotificationService;
 use crate::service::donation::donation_service::DonationService;
 use crate::service::campaign::campaign_service::CampaignService;
+use crate::service::wallet::wallet_service::WalletService;
 
 // TODO: Import other repositories if yours need shared state
 
@@ -21,6 +25,8 @@ pub struct AppState {
     pub campaign_service: Arc<CampaignService>,
     pub campaign_factory: Arc<CampaignFactory>,
     pub notification_service: NotificationService,
+    pub wallet_service: WalletService
+    
     // TODO: Import other services if yours need shared state
 }
 
@@ -45,12 +51,16 @@ pub async fn init_state(pool: PgPool) -> AppState {
         new_campaign_subs_repo,
         subscriber_service,
     );
-    
+    let wallet_repo = Arc::new(PgWalletRepository::new(pool.clone()));
+    let transaction_repo = Arc::new(PgTransactionRepository::new(pool.clone()));
+    let wallet_service = WalletService::new(wallet_repo, transaction_repo);
+
     AppState {
         donation_service,
         campaign_service,
         campaign_factory,
         notification_service,
+        wallet_service
     }
 }
 
@@ -66,5 +76,7 @@ impl StateManagement for Rocket<Build> {
             .manage(state.campaign_factory)
             .manage(state.campaign_service)
             .manage(state.notification_service)
+            .manage(state.wallet_service)
+            
     }
 }
