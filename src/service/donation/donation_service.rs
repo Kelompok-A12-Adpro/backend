@@ -5,22 +5,26 @@ use crate::repository::donation::donation_repository::DonationRepository;
 use crate::service::commands::donation_commands::{
     DeleteDonationMessageCommand, MakeDonationCommand,
 };
+use crate::repository::wallet::wallet_repository::WalletRepository;
 use crate::model::campaign::campaign::CampaignStatus; // Added for CampaignStatus::Active
 use std::sync::Arc;
 
 pub struct DonationService {
     donation_repo: Arc<dyn DonationRepository>,
     campaign_repo: Arc<dyn CampaignRepository>,
+    wallet_repo: Arc<dyn WalletRepository>,
 }
 
 impl DonationService {
     pub fn new(
         donation_repo: Arc<dyn DonationRepository>,
         campaign_repo: Arc<dyn CampaignRepository>,
+        wallet_repo: Arc<dyn WalletRepository>,
     ) -> Self {
         DonationService {
             donation_repo,
             campaign_repo,
+            wallet_repo,
         }
     }
 

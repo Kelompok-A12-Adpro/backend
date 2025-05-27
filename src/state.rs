@@ -38,21 +38,21 @@ pub async fn init_state(pool: PgPool) -> AppState {
     let campaign_repo = Arc::new(PgCampaignRepository::new(pool.clone()));
     let notification_repo = Arc::new(DbNotificationRepository::new(pool.clone()));
     let new_campaign_subs_repo = Arc::new(DbNewCampaignSubscriptionRepository::new(pool.clone()));
+    let wallet_repo = Arc::new(PgWalletRepository::new(pool.clone()));
+    let transaction_repo = Arc::new(PgTransactionRepository::new(pool.clone()));
 
     // Design Patterns
     let campaign_factory = Arc::new(CampaignFactory::new());
     let subscriber_service = Arc::new(SubscriberService::new(notification_repo.clone()));
     
     // Services
-    let donation_service = DonationService::new(donation_repo, campaign_repo.clone());
+    let donation_service = DonationService::new(donation_repo, campaign_repo.clone(), wallet_repo.clone());
     let campaign_service = Arc::new(CampaignService::new(campaign_repo, campaign_factory.clone()));
     let notification_service = NotificationService::new(
         notification_repo,
         new_campaign_subs_repo,
         subscriber_service,
     );
-    let wallet_repo = Arc::new(PgWalletRepository::new(pool.clone()));
-    let transaction_repo = Arc::new(PgTransactionRepository::new(pool.clone()));
     let wallet_service = WalletService::new(wallet_repo, transaction_repo);
 
     AppState {
