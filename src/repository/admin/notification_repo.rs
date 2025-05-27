@@ -99,7 +99,15 @@ impl NotificationRepository for DbNotificationRepository {
                 Ok(true)
             }
             NotificationTargetType::Fundraisers => {
-                // implement later after database ready
+                // let _result = sqlx::query!(
+                //     "INSERT INTO notification_user (user_email, announcement_id)
+                //     SELECT user_email, $1 FROM campaigns WHERE start_at <= NOW()",
+                //     notification_id
+                // )
+                // .execute(&mut **tx)
+                // .await
+                // .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
                 Ok(true)
             }
             NotificationTargetType::Donors => {

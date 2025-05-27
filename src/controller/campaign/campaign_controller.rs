@@ -7,7 +7,10 @@ use rocket::response::status::Created;
 use std::sync::Arc;
 use serde::Deserialize;
 
+use crate::controller::auth;
+use crate::model::admin::notification;
 use crate::model::campaign::campaign::{Campaign, CampaignStatus};
+use crate::service::admin::notification::notification_service::{self, NotificationService};
 use crate::service::campaign::campaign_service::CampaignService;
 use crate::errors::AppError;
 
@@ -37,7 +40,7 @@ pub struct UpdateCampaignRequest {
 async fn create_campaign(
     campaign_req: Json<CreateCampaignRequest>,
     user: AuthUser,
-    service: &State<Arc<CampaignService>>
+    service: &State<Arc<CampaignService>>,
 ) -> Result<Created<Json<Campaign>>, Status> {
     let campaign = service.create_campaign(
         user.id,
@@ -152,11 +155,20 @@ pub struct ApproveCampaignRequest {
 // TODO: need to implement proper authentication and authorization for admin actions
 #[put("/campaigns/<campaign_id>/approve", format = "json", data = "<_approve_req>")]
 async fn approve_campaign(
+    auth: AuthUser,
     campaign_id: i32,
     _approve_req: Json<ApproveCampaignRequest>,
-    service: &State<Arc<CampaignService>>
+    service: &State<Arc<CampaignService>>,
+    notification_service: &State<Arc<NotificationService>>
 ) -> Result<Json<Campaign>, Status> {
-    match service.approve_campaign(campaign_id).await {
+    if !auth.is_admin {
+        return Err(Status::Unauthorized);
+    }
+
+    match service.approve_campaign(
+        campaign_id,
+        notification_service,
+    ).await {
         Ok(campaign) => Ok(Json(campaign)),
         Err(AppError::NotFound(_)) => Err(Status::NotFound),
         Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),
@@ -172,11 +184,21 @@ pub struct RejectCampaignRequest {
 // TODO: need to implement proper authentication and authorization for admin actions
 #[put("/campaigns/<campaign_id>/reject", format = "json", data = "<reject_req>")]
 async fn reject_campaign(
+    auth: AuthUser,
     campaign_id: i32,
     reject_req: Json<RejectCampaignRequest>,
-    service: &State<Arc<CampaignService>>
+    service: &State<Arc<CampaignService>>,
+    notification_service: &State<Arc<NotificationService>>
 ) -> Result<Json<Campaign>, Status> {
-    match service.reject_campaign(campaign_id, reject_req.reason.clone()).await {
+    if !auth.is_admin {
+        return Err(Status::Unauthorized);
+    }
+
+    match service.reject_campaign(
+        campaign_id,
+        reject_req.reason.clone(),
+        notification_service,
+    ).await {
         Ok(campaign) => Ok(Json(campaign)),
         Err(AppError::NotFound(_)) => Err(Status::NotFound),
         Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),

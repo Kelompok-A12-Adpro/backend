@@ -1,6 +1,10 @@
 use std::sync::Arc;
+use rocket::State;
+
+use crate::model::admin::notification::CreateNotificationRequest;
 use crate::model::campaign::campaign::{Campaign, CampaignStatus};
 use crate::repository::campaign::campaign_repository::CampaignRepository;
+use crate::service::admin::notification::notification_service::{self, NotificationService};
 use crate::service::campaign::factory::campaign_factory::CampaignFactory;
 use crate::service::campaign::state::campaign_state::{CampaignState, PendingState, ActiveState, RejectedState, CompletedState};
 use crate::errors::AppError;
@@ -147,22 +151,70 @@ impl CampaignService {
         }
     }
 
-     pub async fn approve_campaign(&self, id: i32) -> Result<Campaign, AppError> {
-
+     pub async fn approve_campaign(
+        &self, id: i32,
+        notification_service: &State<Arc<NotificationService>>,
+    ) -> Result<Campaign, AppError> {
         let mut campaign = self.fetch_or_404(id).await?;
         let state = Self::state_from_status(campaign.status.clone());
         state.approve(&mut campaign)?;
-    
+
         let updated = self.repository.update_campaign(campaign).await?;
+
+        // Create notification for subscriber
+        let notification_service_clone = Arc::clone(notification_service);
+        let campaign_name = updated.name.clone();
+        tokio::spawn(async move {
+            if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                title: "New Campaign Available".to_string(),
+                content: format!("A new campaign '{}' has been created recently!", campaign_name),
+                target_type: crate::model::admin::notification::NotificationTargetType::NewCampaign,
+                adt_detail: None,
+            }).await {
+                eprintln!("Failed to send notification: {:?}", e);
+            }
+
+            if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                title: "Campaign Accepted".to_string(),
+                content: format!("Your campaign '{}' has been approved and is now active!", campaign_name),
+                target_type: crate::model::admin::notification::NotificationTargetType::Fundraisers,
+                adt_detail: Some(id.clone().to_string()),
+            }).await {
+                eprintln!("Failed to send notification: {:?}", e);
+            }
+        });
+        
         Ok(updated)
     }
 
-    pub async fn reject_campaign(&self, id: i32, reason: Option<String>) -> Result<Campaign, AppError> {
+    pub async fn reject_campaign(
+        &self,
+        id: i32,
+        reason: Option<String>,
+        notification_service: &State<Arc<NotificationService>>,
+    ) -> Result<Campaign, AppError> {
         let mut campaign = self.fetch_or_404(id).await?;
         let state = Self::state_from_status(campaign.status.clone());
         state.reject(&mut campaign)?;
 
         let updated = self.repository.update_campaign(campaign).await?;
+
+        // Create notification for fundraiser
+        let notification_service_clone = Arc::clone(notification_service);
+        let campaign_name = updated.name.clone();
+        let reject_reason = reason.clone();
+        tokio::spawn(async move {
+            if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                title: "Campaign Rejected".to_string(),
+                content: format!("Your campaign '{}' has been rejected. Reason: {}", 
+                    campaign_name, reject_reason.unwrap_or("No reason provided".to_string())),
+                target_type: crate::model::admin::notification::NotificationTargetType::Fundraisers,
+                adt_detail: Some(id.clone().to_string()),
+            }).await {
+                eprintln!("Failed to send notification: {:?}", e);
+            }
+        });
+
         Ok(updated)
     }
 
