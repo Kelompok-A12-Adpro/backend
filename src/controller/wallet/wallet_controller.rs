@@ -6,7 +6,10 @@ use crate::errors::AppError;
 use crate::model::wallet::wallet::Wallet;
 use crate::model::wallet::transaction::Transaction;
 use crate::service::wallet::wallet_service::WalletService;
+
+// Placeholder for authentication
 use crate::controller::auth::auth::AuthUser;
+
 
 #[derive(serde::Deserialize)]
 pub struct TopUpRequest {
