@@ -4,7 +4,8 @@ use sqlx::PgPool;
 
 use crate::repository::admin::notification_repo::DbNotificationRepository;
 use crate::repository::admin::new_campaign_subs_repo::DbNewCampaignSubscriptionRepository;
-use crate::repository::donation::donation_repository::PgDonationRepository;
+// This import is correct and brings CampaignTotalsCache into scope
+use crate::repository::donation::donation_repository::{PgDonationRepository, CampaignTotalsCache}; 
 use crate::repository::campaign::campaign_repository::PgCampaignRepository;
 
 
@@ -18,23 +19,20 @@ use crate::service::donation::donation_service::DonationService;
 use crate::service::campaign::campaign_service::CampaignService;
 use crate::service::wallet::wallet_service::WalletService;
 
-// TODO: Import other repositories if yours need shared state
-
+// Your AppState struct
 pub struct AppState {
     pub donation_service: DonationService,
     pub campaign_service: Arc<CampaignService>,
     pub campaign_factory: Arc<CampaignFactory>,
     pub notification_service: NotificationService,
     pub wallet_service: WalletService
-    
-    // TODO: Import other services if yours need shared state
 }
 
-pub async fn init_state(pool: PgPool) -> AppState {
-    // TODO: Initialize other services if yours need shared state
-
+// MODIFIED FUNCTION SIGNATURE:
+pub async fn init_state(pool: PgPool, campaign_totals_cache: CampaignTotalsCache) -> AppState {
     // Repos
-    let donation_repo = Arc::new(PgDonationRepository::new(pool.clone()));
+    // Now `campaign_totals_cache` is available from the function parameters:
+    let donation_repo = Arc::new(PgDonationRepository::new(pool.clone(), campaign_totals_cache.clone())); 
     let campaign_repo = Arc::new(PgCampaignRepository::new(pool.clone()));
     let notification_repo = Arc::new(DbNotificationRepository::new(pool.clone()));
     let new_campaign_subs_repo = Arc::new(DbNewCampaignSubscriptionRepository::new(pool.clone()));
@@ -71,12 +69,14 @@ pub trait StateManagement {
 
 impl StateManagement for Rocket<Build> {
     fn manage_state(self, state: AppState) -> Self {
-        // TODO: Add other services
-        self.manage(state.donation_service)
-            .manage(state.campaign_factory)
-            .manage(state.campaign_service)
-            .manage(state.notification_service)
-            .manage(state.wallet_service)
-            
+        // Manage individual services if they need to be Send + Sync + 'static
+        // If AppState itself is going to be managed directly, ensure it is Send + Sync + 'static
+        // Or if you want to manage Arcs of services.
+        // For simplicity, let's assume services themselves are manageable.
+        self.manage(state.donation_service) // DonationService needs to be Send + Sync + 'static
+            .manage(state.campaign_factory) // Arc<CampaignFactory> is fine
+            .manage(state.campaign_service) // Arc<CampaignService> is fine
+            .manage(state.notification_service) // NotificationService needs to be Send + Sync + 'static
+            .manage(state.wallet_service) // WalletService needs to be Send + Sync + 'static
     }
 }
