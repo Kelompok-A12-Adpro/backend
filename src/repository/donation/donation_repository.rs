@@ -8,18 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub type CampaignTotalsCache = Arc<Mutex<HashMap<i32, i64>>>;
-
-// ... other imports ...
-// use crate::model::donation::donation::{Donation, NewDonationRequest}; // Assuming this path is correct
-// use crate::errors::AppError;
-// use crate::model::wallet::wallet::Wallet; // Assuming this path is correct
-// use std::collections::HashMap; // Already imported if using type alias
-// use std::sync::Arc;
-// use tokio::sync::Mutex;
-
-// Your type alias from above
-pub type CampaignTotalsCache = Arc<Mutex<HashMap<i32, i64>>>;
-
+pub type UserCampaignDonationCache = Arc<Mutex<HashMap<i32, HashMap<i32, i64>>>>;
 
 #[async_trait]
 pub trait DonationRepository: Send + Sync {
@@ -28,19 +17,27 @@ pub trait DonationRepository: Send + Sync {
     async fn find_by_campaign(&self, campaign_id: i32) -> Result<Vec<Donation>, AppError>;
     async fn find_by_user(&self, user_id: i32) -> Result<Vec<Donation>, AppError>;
     async fn update_message(&self, donation_id: i32, user_id: i32, message: Option<String>) -> Result<u64, AppError>;
-    // New method to get the cached total
     async fn get_total_donated_for_campaign(&self, campaign_id: i32) -> Result<i64, AppError>;
+    async fn get_user_total_for_campaign(&self, user_id: i32, campaign_id: i32) -> Result<i64, AppError>;
 }
 
 pub struct PgDonationRepository {
     pool: PgPool,
-    campaign_totals_cache: CampaignTotalsCache, // Add the cache field
+    campaign_totals_cache: CampaignTotalsCache,
+    user_campaign_donation_cache: UserCampaignDonationCache, // Add the new cache field
 }
 
 impl PgDonationRepository {
-    // Modify the constructor to accept the cache
-    pub fn new(pool: PgPool, campaign_totals_cache: CampaignTotalsCache) -> Self {
-        PgDonationRepository { pool, campaign_totals_cache }
+    pub fn new(
+        pool: PgPool, 
+        campaign_totals_cache: CampaignTotalsCache,
+        user_campaign_donation_cache: UserCampaignDonationCache // New parameter
+    ) -> Self {
+        PgDonationRepository { 
+            pool, 
+            campaign_totals_cache,
+            user_campaign_donation_cache 
+        }
     }
 }
 
@@ -135,14 +132,22 @@ impl DonationRepository for PgDonationRepository {
             .await
             .map_err(|e| AppError::DatabaseError(format!("Commit failed: {}", e)))?;
 
-        // --- START CACHE UPDATE ---
-        // If commit was successful, update the cache
-        // This happens outside the DB transaction. If this part fails, the DB is still consistent.
-        // The cache might be slightly stale until the next read for this campaign_id populates it.
-        let mut cache_guard = self.campaign_totals_cache.lock().await;
-        let total_for_campaign = cache_guard.entry(donation.campaign_id).or_insert(0);
-        *total_for_campaign += donation.amount;
-        // --- END CACHE UPDATE ---
+        // --- START CACHE UPDATES (after successful commit) ---
+        // 1. Update CampaignTotalsCache (global total for the campaign)
+        { // Scoped lock
+            let mut global_cache_guard = self.campaign_totals_cache.lock().await;
+            let total_for_campaign = global_cache_guard.entry(donation.campaign_id).or_insert(0);
+            *total_for_campaign += donation.amount;
+        }
+
+        // 2. Update UserCampaignDonationCache (total for this user for this campaign)
+        { // Scoped lock
+            let mut user_cache_guard = self.user_campaign_donation_cache.lock().await;
+            let user_donations_to_campaigns = user_cache_guard.entry(donation.user_id).or_default(); // Get or insert HashMap for user
+            let user_total_for_this_campaign = user_donations_to_campaigns.entry(donation.campaign_id).or_insert(0);
+            *user_total_for_this_campaign += donation.amount;
+        }
+        // --- END CACHE UPDATES ---
 
         Ok(donation)
     }
@@ -215,7 +220,7 @@ impl DonationRepository for PgDonationRepository {
         Ok(result.rows_affected())
     }
 
-    // Implementation for the new trait method
+    // Implementation for CampaignTotalsCache accessor
     async fn get_total_donated_for_campaign(&self, campaign_id: i32) -> Result<i64, AppError> {
         // Try to get from cache first
         { // Scoped lock
@@ -223,20 +228,63 @@ impl DonationRepository for PgDonationRepository {
             if let Some(total) = cache_guard.get(&campaign_id) {
                 return Ok(*total);
             }
-        } // Lock released here
+        }
 
         // If not in cache, compute from DB, then populate cache
-        // This uses the existing find_by_campaign method.
-        // Note: This could be slow if there are many donations per campaign.
-        // For a production system, you might sum in the DB directly:
-        // SELECT COALESCE(SUM(amount), 0) FROM donations WHERE campaign_id = $1
-        let donations = self.find_by_campaign(campaign_id).await?;
-        let total_amount: i64 = donations.iter().map(|d| d.amount).sum();
+        // This query directly sums in the DB for efficiency.
+        let result = sqlx::query!(
+            r#"
+            SELECT COALESCE(SUM(amount), 0) as total_amount
+            FROM donations
+            WHERE campaign_id = $1
+            "#,
+            campaign_id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch total for campaign {}: {}", campaign_id, e)))?;
+        
+        let total_amount = result.total_amount.unwrap_or(0); // COALESCE handles NULL, sum returns Option<Decimal> or Option<i64>
 
         // Populate the cache
         let mut cache_guard = self.campaign_totals_cache.lock().await;
         cache_guard.insert(campaign_id, total_amount);
 
+        Ok(total_amount)
+    }
+
+    // Implementation for UserCampaignDonationCache accessor
+    async fn get_user_total_for_campaign(&self, user_id: i32, campaign_id: i32) -> Result<i64, AppError> {
+        // Try to get from cache first
+        { // Scoped lock
+            let cache_guard = self.user_campaign_donation_cache.lock().await;
+            if let Some(user_donations) = cache_guard.get(&user_id) {
+                if let Some(total) = user_donations.get(&campaign_id) {
+                    return Ok(*total);
+                }
+            }
+        }
+
+        // If not in cache, compute from DB, then populate cache
+        let result = sqlx::query!(
+            r#"
+            SELECT COALESCE(SUM(amount), 0) as total_amount
+            FROM donations
+            WHERE user_id = $1 AND campaign_id = $2
+            "#,
+            user_id,
+            campaign_id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch user total for campaign {}: {}", campaign_id, e)))?;
+
+        let total_amount = result.total_amount.unwrap_or(0);
+
+        // Populate the cache
+        let mut cache_guard = self.user_campaign_donation_cache.lock().await;
+        cache_guard.entry(user_id).or_default().insert(campaign_id, total_amount);
+        
         Ok(total_amount)
     }
 }

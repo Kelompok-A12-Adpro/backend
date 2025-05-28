@@ -63,45 +63,68 @@ async fn rocket() -> _ {
     println!("Database pool initialized.");
 
     // --- START CACHE INITIALIZATION ---
-    // 1. Create the shared cache instance
-    // Assumes CampaignTotalsCache is `Arc<Mutex<HashMap<i32, i64>>>`
-    // and is imported from `backend::repository::donation_repository`
     let campaign_totals_cache: CampaignTotalsCache = Arc::new(Mutex::new(HashMap::new()));
-    println!("Campaign totals cache created.");
+    println!("Campaign totals cache (global) created.");
 
-    // 2. Optional: Warm up the cache at startup
-    // This queries the database for initial totals and populates the cache.
-    // It's good to do this in a non-blocking way if startup time is critical,
-    // or ensure it's quick.
-    let pool_for_warmup = pool.clone(); // Clone pool for warming task
-    let cache_for_warmup = campaign_totals_cache.clone(); // Clone Arc for warming task
+    let user_campaign_donation_cache: UserCampaignDonationCache = Arc::new(Mutex::new(HashMap::new()));
+    println!("User campaign donation cache (per-user) created.");
 
-    // You can spawn this if you don't want to block rocket's launch,
-    // but then the cache might not be warm for the very first requests.
-    // For simplicity, doing it inline here:
-    println!("Warming up campaign totals cache...");
-    match sqlx::query_as::<_, (i32, Option<i64>)>( // (campaign_id, total_amount)
-        "SELECT campaign_id, SUM(amount) as total_donated FROM donations GROUP BY campaign_id"
-    )
-    .fetch_all(&pool_for_warmup)
-    .await {
-        Ok(campaign_sums) => {
-            let mut cache_writer = cache_for_warmup.lock().await;
-            for (campaign_id, total_opt) in campaign_sums {
-                cache_writer.insert(campaign_id, total_opt.unwrap_or(0));
+    // 3. Optional: Warm up caches
+    let pool_for_warmup = pool.clone();
+    let global_cache_for_warmup = campaign_totals_cache.clone();
+    let user_cache_for_warmup = user_campaign_donation_cache.clone();
+
+    // Warm up global campaign totals
+    tokio::spawn(async move { // Spawn warming to not block startup, or do it inline if preferred
+        println!("Warming up global campaign totals cache...");
+        match sqlx::query_as::<_, (i32, Option<i64>)>(
+            "SELECT campaign_id, SUM(amount) as total_donated FROM donations GROUP BY campaign_id"
+        )
+        .fetch_all(&pool_for_warmup)
+        .await {
+            Ok(campaign_sums) => {
+                let mut cache_writer = global_cache_for_warmup.lock().await;
+                for (campaign_id, total_opt) in campaign_sums {
+                    cache_writer.insert(campaign_id, total_opt.unwrap_or(0));
+                }
+                println!("Global campaign totals cache warmed with {} entries.", cache_writer.len());
             }
-            println!("Campaign totals cache warmed up with {} entries.", cache_writer.len());
+            Err(e) => eprintln!("Failed to warm up global campaign totals cache: {}", e),
         }
-        Err(e) => {
-            eprintln!("Failed to warm up campaign totals cache: {}. Continuing without warmed cache.", e);
+    });
+    
+    // Warm up user-specific campaign totals
+    let pool_for_user_warmup = pool.clone(); // Need another clone if previous task took ownership
+    tokio::spawn(async move {
+        println!("Warming up user-specific campaign donation cache...");
+        // This query might return many rows if you have many users and donations
+        match sqlx::query_as::<_, (i32, i32, Option<i64>)>( // (user_id, campaign_id, total_for_pair)
+            "SELECT user_id, campaign_id, SUM(amount) as total_donated FROM donations GROUP BY user_id, campaign_id"
+        )
+        .fetch_all(&pool_for_user_warmup) // Use the new cloned pool
+        .await {
+            Ok(user_campaign_sums) => {
+                let mut cache_writer = user_cache_for_warmup.lock().await;
+                for (user_id, campaign_id, total_opt) in user_campaign_sums {
+                    cache_writer
+                        .entry(user_id)
+                        .or_default()
+                        .insert(campaign_id, total_opt.unwrap_or(0));
+                }
+                println!("User-specific campaign donation cache warmed with data for {} users.", cache_writer.len());
+            }
+            Err(e) => eprintln!("Failed to warm up user-specific campaign donation cache: {}", e),
         }
-    }
+    });
     // --- END CACHE INITIALIZATION ---
 
 
     // Initialize all application state, now passing the cache
     // YOU WILL NEED TO MODIFY `backend::state::init_state` to accept `campaign_totals_cache`
-    let app_state = backend::state::init_state(pool.clone(), campaign_totals_cache.clone()).await; // Pass pool and cache
+    let app_state = backend::state::init_state(
+        pool.clone(), 
+        campaign_totals_cache.clone(), 
+        user_campaign_donation_cache.clone()).await; // Pass pool and cache
     
     rocket::build()
         .mount("/", routes![index])

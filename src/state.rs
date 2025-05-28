@@ -5,7 +5,11 @@ use sqlx::PgPool;
 use crate::repository::admin::notification_repo::DbNotificationRepository;
 use crate::repository::admin::new_campaign_subs_repo::DbNewCampaignSubscriptionRepository;
 // This import is correct and brings CampaignTotalsCache into scope
-use crate::repository::donation::donation_repository::{PgDonationRepository, CampaignTotalsCache}; 
+use crate::repository::donation::donation_repository::{
+    PgDonationRepository, 
+    CampaignTotalsCache, 
+    UserCampaignDonationCache
+}; 
 use crate::repository::campaign::campaign_repository::PgCampaignRepository;
 
 
@@ -29,10 +33,17 @@ pub struct AppState {
 }
 
 // MODIFIED FUNCTION SIGNATURE:
-pub async fn init_state(pool: PgPool, campaign_totals_cache: CampaignTotalsCache) -> AppState {
+pub async fn init_state(
+    pool: PgPool, 
+    campaign_totals_cache: CampaignTotalsCache, 
+    user_campaign_donation_cache: UserCampaignDonationCache
+) -> AppState {
     // Repos
     // Now `campaign_totals_cache` is available from the function parameters:
-    let donation_repo = Arc::new(PgDonationRepository::new(pool.clone(), campaign_totals_cache.clone())); 
+    let donation_repo = Arc::new(PgDonationRepository::new(
+        pool.clone(), 
+        campaign_totals_cache.clone(),
+        user_campaign_donation_cache.clone())); 
     let campaign_repo = Arc::new(PgCampaignRepository::new(pool.clone()));
     let notification_repo = Arc::new(DbNotificationRepository::new(pool.clone()));
     let new_campaign_subs_repo = Arc::new(DbNewCampaignSubscriptionRepository::new(pool.clone()));
