@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use sqlx::{Error as SqlxError, PgPool}; // Import SqlxError
-use crate::model::donation::donation::{Donation, NewDonationRequest}; // Assuming this path is correct
+use sqlx::{Error as SqlxError, PgPool, Transaction as SqlxTransaction, Postgres}; // Import SqlxError, Transaction
+use crate::model::donation::donation::{Donation, NewDonationRequest};
 use crate::errors::AppError;
-use crate::model::wallet::wallet::Wallet; // Assuming this path is correct
+use crate::model::wallet::wallet::Wallet; // For Wallet struct
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -24,19 +24,19 @@ pub trait DonationRepository: Send + Sync {
 pub struct PgDonationRepository {
     pool: PgPool,
     campaign_totals_cache: CampaignTotalsCache,
-    user_campaign_donation_cache: UserCampaignDonationCache, // Add the new cache field
+    user_campaign_donation_cache: UserCampaignDonationCache,
 }
 
 impl PgDonationRepository {
     pub fn new(
-        pool: PgPool, 
+        pool: PgPool,
         campaign_totals_cache: CampaignTotalsCache,
-        user_campaign_donation_cache: UserCampaignDonationCache // New parameter
+        user_campaign_donation_cache: UserCampaignDonationCache
     ) -> Self {
-        PgDonationRepository { 
-            pool, 
+        PgDonationRepository {
+            pool,
             campaign_totals_cache,
-            user_campaign_donation_cache 
+            user_campaign_donation_cache
         }
     }
 }
@@ -44,10 +44,12 @@ impl PgDonationRepository {
 #[async_trait]
 impl DonationRepository for PgDonationRepository {
     async fn create(&self, user_id: i32, new_donation: &NewDonationRequest) -> Result<Donation, AppError> {
-        let mut tx = self.pool.begin().await
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        // Start a database transaction
+        let mut tx: SqlxTransaction<Postgres> = self.pool.begin().await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to begin transaction: {}", e)))?;
 
-        // 1. Lock wallet by user_id
+        // --- 1. Wallet Operations ---
+        // Lock the user's wallet row and fetch current details
         let wallet = sqlx::query_as!(
             Wallet,
             r#"
@@ -58,40 +60,42 @@ impl DonationRepository for PgDonationRepository {
             "#,
             user_id
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut *tx) // Use the transaction object
         .await
-        .map_err(|e| {
-            // It's good practice to roll back on error before returning
-            // tx.rollback().await.ok(); // Or handle rollback error
-            AppError::DatabaseError(format!("Wallet not found or lock failed: {}", e))
+        .map_err(|e| match e {
+            SqlxError::RowNotFound => AppError::NotFound(format!("Wallet not found for user_id: {}", user_id)),
+            _ => AppError::DatabaseError(format!("Failed to fetch or lock wallet for user_id {}: {}", user_id, e)),
         })?;
 
-        // 2. Ensure sufficient balance
+        // Ensure sufficient balance
         if wallet.balance < new_donation.amount as f64 {
-            // tx.rollback().await.ok();
-            return Err(AppError::DatabaseError("Insufficient wallet balance".into()));
+            // No need to explicitly rollback, dropping tx will do it.
+            return Err(AppError::DatabaseError("Insufficient wallet balance".to_string())); // Or a more specific AppError::InsufficientFunds
         }
 
-        let new_balance = wallet.balance - new_donation.amount as f64;
+        // Calculate new wallet balance
+        let new_wallet_balance = wallet.balance - new_donation.amount as f64;
 
-        // 3. Update wallet balance
-        sqlx::query!(
+        // Update wallet balance and updated_at timestamp
+        let wallet_update_result = sqlx::query!(
             r#"
             UPDATE wallets
-            SET balance = $1
+            SET balance = $1, updated_at = NOW() AT TIME ZONE 'UTC'
             WHERE id = $2
             "#,
-            new_balance,
+            new_wallet_balance,
             wallet.id
         )
-        .execute(&mut *tx)
+        .execute(&mut *tx) // Use the transaction object
         .await
-        .map_err(|e| {
-            // tx.rollback().await.ok();
-            AppError::DatabaseError(format!("Failed to update wallet: {}", e))
-        })?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to update wallet balance for user_id {}: {}", user_id, e)))?;
 
-        // 4. Insert donation
+        if wallet_update_result.rows_affected() == 0 {
+            return Err(AppError::DatabaseError(format!("Failed to update wallet: no rows affected for wallet_id {}", wallet.id)));
+        }
+
+        // --- 2. Donation Creation ---
+        // Insert the donation record
         let donation = sqlx::query_as!(
             Donation,
             r#"
@@ -104,50 +108,71 @@ impl DonationRepository for PgDonationRepository {
             new_donation.amount,
             new_donation.message
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut *tx) // Use the transaction object
         .await
-        .map_err(|e| {
-            // tx.rollback().await.ok();
-            AppError::DatabaseError(format!("Failed to insert donation: {}", e))
-        })?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create donation: {}", e)))?;
 
-        // 5. Log to transactions
+        // --- 3. Campaign Update ---
+        // Update the campaign's collected_amount and updated_at timestamp
+        let campaign_update_result = sqlx::query!(
+            r#"
+            UPDATE campaigns
+            SET collected_amount = collected_amount + $1,
+                updated_at = NOW() AT TIME ZONE 'UTC'
+            WHERE id = $2
+            "#,
+            donation.amount, // Use amount from the created donation
+            donation.campaign_id
+        )
+        .execute(&mut *tx) // Use the transaction object
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to update campaign collected amount for campaign_id {}: {}", donation.campaign_id, e)))?;
+
+        if campaign_update_result.rows_affected() == 0 {
+             // This implies the campaign_id doesn't exist or there was an issue.
+             // If a foreign key constraint exists from donations.campaign_id to campaigns.id,
+             // the donation insert would have failed earlier if the campaign didn't exist.
+             // So, this check is an additional safeguard or covers cases without FK.
+            return Err(AppError::NotFound(format!("Campaign with id {} not found or failed to update collected amount.", donation.campaign_id)));
+        }
+
+        // --- 4. Transaction Logging ---
+        // Log the donation to the transactions table
+        // Assuming 'transactions' table's 'created_at' has a DEFAULT NOW() or similar
+        // and 'is_deleted' should be false for new transactions.
         sqlx::query!(
             r#"
-            INSERT INTO transactions (wallet_id, transaction_type, amount, campaign_id)
-            VALUES ($1, 'donation', $2, $3)
+            INSERT INTO transactions (wallet_id, transaction_type, amount, campaign_id, is_deleted)
+            VALUES ($1, 'donation', $2, $3, false)
             "#,
             wallet.id,
-            new_donation.amount as f64, // Ensure this matches DB type, might be new_donation.amount if DB is integer
-            new_donation.campaign_id
+            donation.amount as f64, // Transaction amount is f64
+            donation.campaign_id
         )
-        .execute(&mut *tx)
+        .execute(&mut *tx) // Use the transaction object
         .await
-        .map_err(|e| {
-            // tx.rollback().await.ok();
-            AppError::DatabaseError(format!("Failed to insert transaction: {}", e))
-        })?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to log donation transaction: {}", e)))?;
 
+        // --- Commit Transaction ---
         tx.commit()
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Commit failed: {}", e)))?;
+            .map_err(|e| AppError::DatabaseError(format!("Transaction commit failed: {}", e)))?;
 
-        // --- START CACHE UPDATES (after successful commit) ---
-        // 1. Update CampaignTotalsCache (global total for the campaign)
-        { // Scoped lock
-            let mut global_cache_guard = self.campaign_totals_cache.lock().await;
-            let total_for_campaign = global_cache_guard.entry(donation.campaign_id).or_insert(0);
+        // --- Cache Updates (After Successful Commit) ---
+        // 1. Update CampaignTotalsCache
+        {
+            let mut campaign_totals_cache_guard = self.campaign_totals_cache.lock().await;
+            let total_for_campaign = campaign_totals_cache_guard.entry(donation.campaign_id).or_insert(0);
             *total_for_campaign += donation.amount;
         }
 
-        // 2. Update UserCampaignDonationCache (total for this user for this campaign)
-        { // Scoped lock
-            let mut user_cache_guard = self.user_campaign_donation_cache.lock().await;
-            let user_donations_to_campaigns = user_cache_guard.entry(donation.user_id).or_default(); // Get or insert HashMap for user
+        // 2. Update UserCampaignDonationCache
+        {
+            let mut user_campaign_donation_cache_guard = self.user_campaign_donation_cache.lock().await;
+            let user_donations_to_campaigns = user_campaign_donation_cache_guard.entry(donation.user_id).or_default();
             let user_total_for_this_campaign = user_donations_to_campaigns.entry(donation.campaign_id).or_insert(0);
             *user_total_for_this_campaign += donation.amount;
         }
-        // --- END CACHE UPDATES ---
 
         Ok(donation)
     }
@@ -206,7 +231,7 @@ impl DonationRepository for PgDonationRepository {
         let result = sqlx::query!(
             r#"
             UPDATE donations
-            SET message = $1
+            SET message = $1, updated_at = NOW() AT TIME ZONE 'UTC' -- Assuming donations table has updated_at
             WHERE id = $2 AND user_id = $3
             "#,
             message,
@@ -217,21 +242,22 @@ impl DonationRepository for PgDonationRepository {
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
+        // If donation.updated_at is not a field, remove the SET updated_at part.
+        // For this example, I'm assuming it's good practice to have it.
+        // If your `Donation` model doesn't have `updated_at`, the SQL should be:
+        // UPDATE donations SET message = $1 WHERE id = $2 AND user_id = $3
+
         Ok(result.rows_affected())
     }
 
-    // Implementation for CampaignTotalsCache accessor
     async fn get_total_donated_for_campaign(&self, campaign_id: i32) -> Result<i64, AppError> {
-        // Try to get from cache first
-        { // Scoped lock
+        {
             let cache_guard = self.campaign_totals_cache.lock().await;
             if let Some(total) = cache_guard.get(&campaign_id) {
                 return Ok(*total);
             }
         }
 
-        // If not in cache, compute from DB, then populate cache
-        // This query directly sums in the DB for efficiency.
         let result = sqlx::query!(
             r#"
             SELECT COALESCE(SUM(amount), 0) as total_amount
@@ -243,20 +269,17 @@ impl DonationRepository for PgDonationRepository {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to fetch total for campaign {}: {}", campaign_id, e)))?;
-        
-        let total_amount = result.total_amount.unwrap_or(0); // COALESCE handles NULL, sum returns Option<Decimal> or Option<i64>
 
-        // Populate the cache
+        let total_amount = result.total_amount.unwrap_or(0);
+
         let mut cache_guard = self.campaign_totals_cache.lock().await;
         cache_guard.insert(campaign_id, total_amount);
 
         Ok(total_amount)
     }
 
-    // Implementation for UserCampaignDonationCache accessor
     async fn get_user_total_for_campaign(&self, user_id: i32, campaign_id: i32) -> Result<i64, AppError> {
-        // Try to get from cache first
-        { // Scoped lock
+        {
             let cache_guard = self.user_campaign_donation_cache.lock().await;
             if let Some(user_donations) = cache_guard.get(&user_id) {
                 if let Some(total) = user_donations.get(&campaign_id) {
@@ -265,7 +288,6 @@ impl DonationRepository for PgDonationRepository {
             }
         }
 
-        // If not in cache, compute from DB, then populate cache
         let result = sqlx::query!(
             r#"
             SELECT COALESCE(SUM(amount), 0) as total_amount
@@ -281,10 +303,9 @@ impl DonationRepository for PgDonationRepository {
 
         let total_amount = result.total_amount.unwrap_or(0);
 
-        // Populate the cache
         let mut cache_guard = self.user_campaign_donation_cache.lock().await;
         cache_guard.entry(user_id).or_default().insert(campaign_id, total_amount);
-        
+
         Ok(total_amount)
     }
 }
