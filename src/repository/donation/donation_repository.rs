@@ -99,13 +99,16 @@ impl DonationRepository for PgDonationRepository {
         let donation = sqlx::query_as!(
             Donation,
             r#"
-            INSERT INTO donations (user_id, campaign_id, amount, message)
+            INSERT INTO donations (user_id, 
+                campaign_id, 
+                COALESCE(amount::BIGINT, 0) as "amount!: i64", 
+                message)
             VALUES ($1, $2, $3, $4)
             RETURNING id, user_id, campaign_id, amount, message, created_at
             "#,
             user_id,
             new_donation.campaign_id,
-            new_donation.amount,
+            new_donation as f64.amount,
             new_donation.message
         )
         .fetch_one(&mut *tx) // Use the transaction object
@@ -181,7 +184,12 @@ impl DonationRepository for PgDonationRepository {
         let donation = sqlx::query_as!(
             Donation,
             r#"
-            SELECT id, user_id, campaign_id, amount, message, created_at
+            SELECT id, 
+                user_id, 
+                campaign_id, 
+                COALESCE(amount::BIGINT, 0) as "amount!: i64",
+                message, 
+                created_at
             FROM donations
             WHERE id = $1
             "#,
@@ -197,7 +205,12 @@ impl DonationRepository for PgDonationRepository {
         let donations = sqlx::query_as!(
             Donation,
             r#"
-            SELECT id, user_id, campaign_id, amount, message, created_at
+            SELECT id, 
+                user_id, 
+                campaign_id, 
+                COALESCE(amount::BIGINT, 0) as "amount!: i64", 
+                message, 
+                created_at
             FROM donations
             WHERE campaign_id = $1
             ORDER BY created_at DESC
@@ -214,9 +227,15 @@ impl DonationRepository for PgDonationRepository {
         let donations = sqlx::query_as!(
             Donation,
             r#"
-            SELECT id, user_id, campaign_id, amount, message, created_at
+            SELECT
+                id,
+                user_id,
+                campaign_id,
+                COALESCE(amount::BIGINT, 0) as "amount!: i64",
+                message,
+                created_at
             FROM donations
-            WHERE user_id = $1
+            WHERE user_id = $1 -- or campaign_id = $1
             ORDER BY created_at DESC
             "#,
             user_id
@@ -260,7 +279,7 @@ impl DonationRepository for PgDonationRepository {
 
         let result = sqlx::query!(
             r#"
-            SELECT COALESCE(SUM(amount), 0) as total_amount
+            SELECT COALESCE(SUM(amount)::BIGINT, 0) as total_amount
             FROM donations
             WHERE campaign_id = $1
             "#,
@@ -290,7 +309,7 @@ impl DonationRepository for PgDonationRepository {
 
         let result = sqlx::query!(
             r#"
-            SELECT COALESCE(SUM(amount), 0) as total_amount
+            SELECT COALESCE(SUM(amount)::BIGINT, 0) as total_amount
             FROM donations
             WHERE user_id = $1 AND campaign_id = $2
             "#,
