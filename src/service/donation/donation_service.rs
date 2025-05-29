@@ -160,4 +160,19 @@ impl DonationService {
     pub async fn get_donations_by_user(&self, user_id: i32) -> Result<Vec<Donation>, AppError> {
         self.donation_repo.find_by_user(user_id).await
     }
+
+    pub async fn get_total_donated_for_campaign_from_repo( // Renamed to avoid clash if you had another method
+        &self,
+        campaign_id: i32,
+    ) -> Result<i64, AppError> {
+        self.donation_repo.get_total_donated_for_campaign(campaign_id).await
+    }
+
+    pub async fn get_my_total_for_campaign_from_repo( // Renamed for clarity
+        &self,
+        user_id: i32,
+        campaign_id: i32,
+    ) -> Result<i64, AppError> {
+        self.donation_repo.get_user_total_for_campaign(user_id, campaign_id).await
+    }
 }
