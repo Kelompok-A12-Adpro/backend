@@ -76,7 +76,7 @@ impl WalletService {
             method: Some(strategy.get_name().to_string()),
             phone_number: Some(phone_number.to_string()),
             campaign_id: None,
-            created_at: Utc::now(),
+            created_at: Utc::now().naive_utc(),
             is_deleted: false,
         };
         
@@ -145,7 +145,7 @@ impl WalletService {
             method: None,
             phone_number: None,
             campaign_id: Some(campaign_id),
-            created_at: Utc::now(),
+            created_at: Utc::now().naive_utc(),
             is_deleted: false,
         };
         
