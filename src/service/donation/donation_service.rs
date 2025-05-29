@@ -28,78 +28,97 @@ impl DonationService {
         }
     }
 
-    pub async fn make_donation(&self, cmd: MakeDonationCommand) -> Result<Donation, AppError> {
+        pub async fn make_donation(&self, cmd: MakeDonationCommand) -> Result<Donation, AppError> {
         if cmd.amount <= 0 {
             return Err(AppError::ValidationError(
                 "Donation amount must be positive".to_string(),
             ));
         }
 
-        // Fetch the campaign
-        let mut campaign = self
+        // 1. Fetch the campaign to check its status and target BEFORE donation
+        let initial_campaign = self
             .campaign_repo
             .get_campaign(cmd.campaign_id)
             .await?
-            .ok_or_else(|| AppError::NotFound("Campaign not found".to_string()))?;
+            .ok_or_else(|| AppError::NotFound(format!("Campaign {} not found", cmd.campaign_id)))?;
 
-        // Check if the campaign is active
-        if campaign.status != CampaignStatus::Active {
+        // 2. Check if the campaign is active
+        if initial_campaign.status != CampaignStatus::Active {
             return Err(AppError::InvalidOperation(
                 "Donations can only be made to active campaigns".to_string(),
             ));
         }
 
-        // Prepare the new donation request
+        // 3. Prepare the new donation request
         let req = NewDonationRequest {
             campaign_id: cmd.campaign_id,
             amount: cmd.amount,
             message: cmd.message,
         };
 
-        // Create the donation
-        // IMPORTANT: In a real-world scenario with database-backed repositories,
-        // the creation of the donation and the update of the campaign's collected amount
-        // should be performed within a single database transaction to ensure atomicity.
-        // This would typically involve modifying repository methods to accept a transaction
-        // handle or managing the transaction at the service layer if the pool is directly accessible.
+        // 4. Create the donation.
+        // The `donation_repo.create` method already handles:
+        // - Wallet debit
+        // - Donation record insertion
+        // - Updating campaign's collected_amount
+        // - Logging the transaction
+        // All within a single database transaction.
         let donation = self.donation_repo.create(cmd.donor_id, &req).await?;
 
-        // Update the campaign's collected amount
-        campaign.collected_amount += donation.amount;
+        // 5. (Potentially Re-fetch or use returned info) Check if campaign target is met
+        // After the donation is successfully created, the campaign's collected_amount
+        // in the database has been updated by `donation_repo.create`.
+        // We need the *new* collected_amount to check against the target.
+        // Option A: Re-fetch the campaign (simplest, ensures fresh data)
+        let updated_campaign = self
+            .campaign_repo
+            .get_campaign(cmd.campaign_id)
+            .await?
+            .ok_or_else(|| {
+                // This would be very unusual if the donation succeeded
+                AppError::InternalServerError(format!(
+                    "Campaign {} not found after successful donation {}",
+                    cmd.campaign_id, donation.id
+                ))
+            })?;
 
-        // Persist the updated campaign information
-        match self.campaign_repo.update_campaign(campaign.clone()).await { // campaign.clone() because update_campaign takes ownership
-            Ok(_) => {
-                // Optionally, check if campaign needs to be marked as Completed
-                if campaign.collected_amount >= campaign.target_amount && campaign.status == CampaignStatus::Active {
-                    // This part would ideally be handled by the CampaignService or a dedicated
-                    // CampaignState transition mechanism, potentially triggered by an event or observer,
-                    // rather than directly in DonationService.
-                    // For now, we'll just note it. A more robust solution would involve
-                    // self.campaign_repo.update_campaign_status(campaign.id, CampaignStatus::Completed).await?;
-                    // or calling a CampaignService method.
-                    println!(
-                        "Campaign {} has reached its target of {}. Collected: {}",
-                        campaign.id, campaign.target_amount, campaign.collected_amount
+        // Option B: If `donation_repo.create` could also return the new campaign total, use that.
+        // For now, re-fetching is safer.
+
+        if updated_campaign.collected_amount >= updated_campaign.target_amount
+            && updated_campaign.status == CampaignStatus::Active // Ensure it's still Active before changing
+        {
+            println!(
+                "Campaign {} has reached its target of {}. Collected: {}. Attempting to mark as Completed.",
+                updated_campaign.id, updated_campaign.target_amount, updated_campaign.collected_amount
+            );
+            // This is a separate operation. If it fails, the donation is still valid.
+            // Consider logging this failure or putting it in a retry queue.
+            match self.campaign_repo
+                .update_campaign_status(updated_campaign.id, CampaignStatus::Completed)
+                .await
+            {
+                Ok(true) => {
+                    println!("Campaign {} successfully marked as Completed.", updated_campaign.id);
+                }
+                Ok(false) => {
+                     // This means 0 rows were affected, campaign might not exist or status was already Completed
+                    eprintln!(
+                        "Campaign {} status update to Completed reported no changes. Current status might already be Completed or ID is incorrect.",
+                        updated_campaign.id
                     );
                 }
-                Ok(donation)
-            }
-            Err(e) => {
-                // This is a critical state: donation was created, but campaign update failed.
-                // Log this error prominently. A compensation mechanism (e.g., trying to delete
-                // the donation or flagging it for manual review) might be needed in a robust system.
-                eprintln!(
-                    "CRITICAL ERROR: Donation ID {} was created for campaign ID {}, but failed to update campaign's collected amount. Error: {:?}",
-                    donation.id, cmd.campaign_id, e
-                );
-                // Return an error indicating a partial failure.
-                Err(AppError::InternalServerError(format!(
-                    "Donation created, but failed to update campaign (ID: {}): {}",
-                    cmd.campaign_id, e
-                )))
+                Err(e) => {
+                    eprintln!(
+                        "ERROR: Donation ID {} created for campaign ID {}, campaign target met, but failed to update campaign status to Completed. Error: {:?}",
+                        donation.id, cmd.campaign_id, e
+                    );
+                    // Don't return an error for the whole donation, as the donation itself succeeded.
+                    // This is a secondary effect. Log it and potentially handle it asynchronously.
+                }
             }
         }
+        Ok(donation)
     }
 
     pub async fn delete_donation_message(
