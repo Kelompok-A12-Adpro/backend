@@ -221,36 +221,63 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+     #[tokio::test]
     async fn test_make_donation_campaign_not_found() {
-        let mock_donation_repo = MockTestDonationRepo::new();
+        // 1. Setup Mocks
+        let mock_donation_repo = MockTestDonationRepo::new(); // No methods expected on this repo for this path
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
-        let mock_wallet_repo = MockTestWalletRepo::new();
-        let campaign_id = 99;
+        let mock_wallet_repo = MockTestWalletRepo::new(); // No methods expected on this repo for this path
 
+        let campaign_id_to_test = 99; // The ID for the campaign that won't be found
+
+        // 2. Set Expectations on Mocks
+        // Expect `get_campaign` to be called once with `campaign_id_to_test`
+        // and make it return `Ok(None)` to simulate the campaign not being found.
         mock_campaign_repo
-            .expect_get_campaign() // Use the correct method name
-            .with(eq(campaign_id))
-            .times(1)
-            .returning(move |_| Ok(None));
+            .expect_get_campaign()
+            .with(eq(campaign_id_to_test)) // Check that it's called with the correct ID
+            .times(1)                      // Expect it to be called exactly once
+            .returning(move |_id| Ok(None)); // Return Ok(None)
 
-        let service =
-            DonationService::new(
-                Arc::new(mock_donation_repo), 
-                Arc::new(mock_campaign_repo),
-                Arc::new(mock_wallet_repo));
+        // 3. Instantiate the Service with Mocks
+        let service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+
+        // 4. Prepare the Command for the Service
         let cmd = MakeDonationCommand {
-            donor_id: 1,
-            campaign_id,
-            amount: 50,
-            message: None,
+            donor_id: 1,                        // Arbitrary donor ID for this test
+            campaign_id: campaign_id_to_test,   // Use the ID we are testing
+            amount: 50,                         // Arbitrary amount
+            message: None,                      // Arbitrary message
         };
+
+        // 5. Call the Service Method
         let result = service.make_donation(cmd).await;
 
-        assert!(result.is_err());
+        // 6. Assert the Outcome
+        assert!(result.is_err(), "Expected service.make_donation to return an error.");
+
         match result.err().unwrap() {
-            AppError::NotFound(msg) => assert!(msg.contains("Campaign not found")),
-            e => panic!("Expected NotFound error, got {:?}", e),
+            AppError::NotFound(actual_msg) => {
+                // Construct the exact error message string that the service is expected to generate
+                let expected_msg = format!("Campaign {} not found", campaign_id_to_test);
+                // Assert that the actual message from the error matches the expected message
+                assert_eq!(
+                    actual_msg,
+                    expected_msg,
+                    "The NotFound error message did not match. Expected: '{}', Actual: '{}'",
+                    expected_msg,
+                    actual_msg
+                );
+            }
+            // If any other type of error is returned, the test should fail
+            other_error => panic!(
+                "Expected AppError::NotFound, but got a different error: {:?}",
+                other_error
+            ),
         }
     }
 

@@ -5,6 +5,7 @@ mod tests {
     use crate::service::donation::donation_service::DonationService;
     use crate::errors::AppError;
     use crate::controller::donation::donation_controller::routes;
+    use rocket::http::Header;
 
     use rocket::local::blocking::Client;
     use rocket::http::{Status, ContentType};
@@ -351,7 +352,7 @@ mod tests {
     // The TestCampaign struct is no longer needed as we use the actual Campaign struct.
     // // pub struct TestCampaign { ... } 
 
-        #[test]
+    #[test]
     fn test_make_donation_success() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mut mock_campaign_repo = MockCampaignRepository::new();
@@ -430,13 +431,14 @@ mod tests {
         let response = client
             .post("/api/donations")
             .header(ContentType::JSON)
+            .header(Header::new("X-Test-Auth-User-Id", expected_user_id_from_auth.to_string()))
             .json(&json!({
                 "campaign_id": expected_campaign_id,
                 "amount": expected_amount,
                 "message": expected_message
             }))
             .dispatch();
-
+        
         assert_eq!(response.status(), Status::Created, "Response: {:?}", response.into_string());
         assert!(response.headers().get_one("Location").is_some());
         let body = response.into_json::<Donation>().unwrap();
