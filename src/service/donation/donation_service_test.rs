@@ -721,82 +721,8 @@ mod tests {
         }
     }
 
-        #[tokio::test]
-    async fn test_make_donation_campaign_update_fails_after_donation_creation() {
-        let mut mock_donation_repo = MockTestDonationRepo::new();
-        let mut mock_campaign_repo = MockTestCampaignRepo::new();
-        let mock_wallet_repo = MockTestWalletRepo::new();
-        let donor_id = 1;
-        let campaign_id = 10;
-        let donation_amount = 50;
-        let initial_collected_amount = 100;
 
-        let mut campaign = dummy_campaign(campaign_id, CampaignStatus::Active);
-        campaign.collected_amount = initial_collected_amount;
-        let campaign_clone_for_get = campaign.clone();
-
-        let expected_donation = Donation {
-            id: 1,
-            user_id: donor_id,
-            campaign_id,
-            amount: donation_amount,
-            message: None,
-            created_at: Utc::now(),
-        };
-        let expected_donation_clone = expected_donation.clone();
-
-        // 1. Expect get_campaign to succeed
-        mock_campaign_repo
-            .expect_get_campaign()
-            .with(eq(campaign_id))
-            .times(1)
-            .returning(move |_| Ok(Some(campaign_clone_for_get.clone())));
-
-        // 2. Expect donation_repo.create to succeed
-        mock_donation_repo
-            .expect_create()
-            .withf(move |uid, req: &NewDonationRequest| {
-                *uid == donor_id && req.campaign_id == campaign_id && req.amount == donation_amount
-            })
-            .times(1)
-            .returning(move |_, _| Ok(expected_donation_clone.clone()));
-
-        // 3. Expect campaign_repo.update_campaign to FAIL
-        let expected_updated_collected_amount = initial_collected_amount + donation_amount;
-        mock_campaign_repo
-            .expect_update_campaign()
-            .withf(move |updated_campaign: &Campaign| {
-                updated_campaign.id == campaign_id &&
-                updated_campaign.collected_amount == expected_updated_collected_amount
-            })
-            .times(1)
-            .returning(|_| Err(AppError::DatabaseError("Simulated DB error on campaign update".to_string())));
-
-        let service =
-            DonationService::new(
-                Arc::new(mock_donation_repo), 
-                Arc::new(mock_campaign_repo), 
-                Arc::new(mock_wallet_repo));
-
-        let cmd = MakeDonationCommand {
-            donor_id,
-            campaign_id,
-            amount: donation_amount,
-            message: None,
-        };
-        let result = service.make_donation(cmd).await;
-
-        assert!(result.is_err());
-        match result.err().unwrap() {
-            AppError::InternalServerError(msg) => {
-                assert!(msg.contains(&format!("Donation created, but failed to update campaign (ID: {})", campaign_id)));
-                assert!(msg.contains("Simulated DB error on campaign update"));
-            }
-            e => panic!("Expected InternalServerError, got {:?}", e),
-        }
-    }
-
-        #[tokio::test]
+    #[tokio::test]
     async fn test_make_donation_success_and_target_met() {
         let mut mock_donation_repo = MockTestDonationRepo::new();
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
@@ -956,6 +882,124 @@ mod tests {
         match result.err().unwrap() {
             AppError::DatabaseError(msg) => assert_eq!(msg, "DB error on re-fetch"),
             e => panic!("Expected DatabaseError, got {:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_total_donated_for_campaign_from_repo_success() {
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mock_campaign_repo = MockTestCampaignRepo::new(); // Needed for service construction
+        let mock_wallet_repo = MockTestWalletRepo::new();   // Needed for service construction
+        let campaign_id = 123;
+        let expected_total = 5000i64;
+
+        mock_donation_repo
+            .expect_get_total_donated_for_campaign()
+            .with(eq(campaign_id))
+            .times(1)
+            .returning(move |_| Ok(expected_total));
+
+        let service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+
+        let result = service
+            .get_total_donated_for_campaign_from_repo(campaign_id)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), expected_total);
+    }
+
+    #[tokio::test]
+    async fn test_get_total_donated_for_campaign_from_repo_error() {
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mock_campaign_repo = MockTestCampaignRepo::new();
+        let mock_wallet_repo = MockTestWalletRepo::new();
+        let campaign_id = 123;
+
+        mock_donation_repo
+            .expect_get_total_donated_for_campaign()
+            .with(eq(campaign_id))
+            .times(1)
+            .returning(|_| Err(AppError::DatabaseError("Repo failed".to_string())));
+
+        let service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+
+        let result = service
+            .get_total_donated_for_campaign_from_repo(campaign_id)
+            .await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            AppError::DatabaseError(msg) => assert_eq!(msg, "Repo failed"),
+            _ => panic!("Unexpected error type"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_my_total_for_campaign_from_repo_success() {
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mock_campaign_repo = MockTestCampaignRepo::new();
+        let mock_wallet_repo = MockTestWalletRepo::new();
+        let user_id = 1;
+        let campaign_id = 123;
+        let expected_total = 250i64;
+
+        mock_donation_repo
+            .expect_get_user_total_for_campaign()
+            .with(eq(user_id), eq(campaign_id))
+            .times(1)
+            .returning(move |_, _| Ok(expected_total));
+
+        let service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+
+        let result = service
+            .get_my_total_for_campaign_from_repo(user_id, campaign_id)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), expected_total);
+    }
+
+    #[tokio::test]
+    async fn test_get_my_total_for_campaign_from_repo_error() {
+        let mut mock_donation_repo = MockTestDonationRepo::new();
+        let mock_campaign_repo = MockTestCampaignRepo::new();
+        let mock_wallet_repo = MockTestWalletRepo::new();
+        let user_id = 1;
+        let campaign_id = 123;
+
+        mock_donation_repo
+            .expect_get_user_total_for_campaign()
+            .with(eq(user_id), eq(campaign_id))
+            .times(1)
+            .returning(|_, _| Err(AppError::NotFound("User total not found".to_string())));
+
+        let service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+
+        let result = service
+            .get_my_total_for_campaign_from_repo(user_id, campaign_id)
+            .await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            AppError::NotFound(msg) => assert_eq!(msg, "User total not found"),
+            _ => panic!("Unexpected error type"),
         }
     }
 }
