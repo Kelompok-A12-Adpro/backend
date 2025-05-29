@@ -10,9 +10,8 @@ use backend::{
         wallet::wallet_controller::wallet_routes
     }, 
     db, 
-    // Ensure CampaignTotalsCache is accessible, e.g., exported from your donation repository module
-    // For example, if it's in `backend::repository::donation_repository`:
-    repository::donation_repository::CampaignTotalsCache, // <--- ADD THIS IMPORT (adjust path as needed)
+    repository::donation::donation_repository::CampaignTotalsCache,
+    repository::donation::donation_repository::UserCampaignDonationCache,
     state::StateManagement // Assuming this is your main state struct
 };
 
