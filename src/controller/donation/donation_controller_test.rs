@@ -5,7 +5,7 @@ mod tests {
     use crate::service::donation::donation_service::DonationService;
     use crate::errors::AppError;
     use crate::controller::donation::donation_controller::routes;
-    // use crate::auth::auth::AuthUser; // Still using DummyAuthUser from controller
+    use rocket::http::Header;
 
     use rocket::local::blocking::Client;
     use rocket::http::{Status, ContentType};
@@ -19,7 +19,10 @@ mod tests {
     use crate::repository::campaign::campaign_repository::CampaignRepository;
     use crate::model::campaign::campaign::{Campaign, CampaignStatus}; // Import CampaignStatus as well
 
-    // --- Manual Mock for DonationRepository (remains the same as you provided) ---
+    use crate::repository::wallet::wallet_repository::WalletRepository; // Import WalletRepository trait
+    use crate::model::wallet::wallet::Wallet; // Import Wallet model for mock
+
+    // --- Update MockDonationRepository ---
     #[derive(Clone)]
     struct MockDonationRepository {
         create_fn: Arc<Mutex<Option<Box<dyn Fn(i32, NewDonationRequest) -> Result<Donation, AppError> + Send + Sync>>>>,
@@ -27,6 +30,9 @@ mod tests {
         find_by_campaign_fn: Arc<Mutex<Option<Box<dyn Fn(i32) -> Result<Vec<Donation>, AppError> + Send + Sync>>>>,
         find_by_user_fn: Arc<Mutex<Option<Box<dyn Fn(i32) -> Result<Vec<Donation>, AppError> + Send + Sync>>>>,
         update_message_fn: Arc<Mutex<Option<Box<dyn Fn(i32, i32, Option<String>) -> Result<u64, AppError> + Send + Sync>>>>,
+        // ADDED:
+        get_total_donated_for_campaign_fn: Arc<Mutex<Option<Box<dyn Fn(i32) -> Result<i64, AppError> + Send + Sync>>>>,
+        get_user_total_for_campaign_fn: Arc<Mutex<Option<Box<dyn Fn(i32, i32) -> Result<i64, AppError> + Send + Sync>>>>,
     }
 
     impl MockDonationRepository {
@@ -37,9 +43,13 @@ mod tests {
                 find_by_campaign_fn: Arc::new(Mutex::new(None)),
                 find_by_user_fn: Arc::new(Mutex::new(None)),
                 update_message_fn: Arc::new(Mutex::new(None)),
+                // ADDED:
+                get_total_donated_for_campaign_fn: Arc::new(Mutex::new(None)),
+                get_user_total_for_campaign_fn: Arc::new(Mutex::new(None)),
             }
         }
 
+        // ... existing expect methods ...
         fn expect_create(&mut self, f: impl Fn(i32, NewDonationRequest) -> Result<Donation, AppError> + Send + Sync + 'static) {
             *self.create_fn.lock().unwrap() = Some(Box::new(f));
         }
@@ -55,10 +65,19 @@ mod tests {
         fn expect_update_message(&mut self, f: impl Fn(i32, i32, Option<String>) -> Result<u64, AppError> + Send + Sync + 'static) {
             *self.update_message_fn.lock().unwrap() = Some(Box::new(f));
         }
+
+        // ADDED:
+        fn expect_get_total_donated_for_campaign(&mut self, f: impl Fn(i32) -> Result<i64, AppError> + Send + Sync + 'static) {
+            *self.get_total_donated_for_campaign_fn.lock().unwrap() = Some(Box::new(f));
+        }
+        fn expect_get_user_total_for_campaign(&mut self, f: impl Fn(i32, i32) -> Result<i64, AppError> + Send + Sync + 'static) {
+            *self.get_user_total_for_campaign_fn.lock().unwrap() = Some(Box::new(f));
+        }
     }
 
     #[async_trait]
     impl DonationRepository for MockDonationRepository {
+        // ... existing trait methods ...
         async fn create(&self, user_id: i32, new_donation: &NewDonationRequest) -> Result<Donation, AppError> {
             let guard = self.create_fn.lock().unwrap();
             if let Some(f) = guard.as_ref() {
@@ -99,7 +118,66 @@ mod tests {
                 panic!("MockDonationRepository: expect_update_message was not called or not set");
             }
         }
+
+        // ADDED:
+        async fn get_total_donated_for_campaign(&self, campaign_id: i32) -> Result<i64, AppError> {
+            let guard = self.get_total_donated_for_campaign_fn.lock().unwrap();
+            if let Some(f) = guard.as_ref() {
+                f(campaign_id)
+            } else {
+                panic!("MockDonationRepository: expect_get_total_donated_for_campaign was not called or not set");
+            }
+        }
+
+        async fn get_user_total_for_campaign(&self, user_id: i32, campaign_id: i32) -> Result<i64, AppError> {
+            let guard = self.get_user_total_for_campaign_fn.lock().unwrap();
+            if let Some(f) = guard.as_ref() {
+                f(user_id, campaign_id)
+            } else {
+                panic!("MockDonationRepository: expect_get_user_total_for_campaign was not called or not set");
+            }
+        }
     }
+
+    #[derive(Clone)]
+    struct MockWalletRepository {
+        find_by_user_id_fn: Arc<Mutex<Option<Box<dyn Fn(i32) -> Result<Option<Wallet>, AppError> + Send + Sync>>>>,
+        update_balance_fn: Arc<Mutex<Option<Box<dyn Fn(i32, f64) -> Result<(), AppError> + Send + Sync>>>>,
+        create_wallet_if_not_exists_fn: Arc<Mutex<Option<Box<dyn Fn(i32) -> Result<Wallet, AppError> + Send + Sync>>>>,
+    }
+
+    impl MockWalletRepository {
+        fn new() -> Self {
+            Self {
+                find_by_user_id_fn: Arc::new(Mutex::new(None)),
+                update_balance_fn: Arc::new(Mutex::new(None)),
+                create_wallet_if_not_exists_fn: Arc::new(Mutex::new(None)),
+            }
+        }
+        // Add expect_ methods if you need to set expectations, otherwise, default panic is fine.
+        // For these controller tests, we likely don't need to set expectations on WalletRepo
+        // as the DonationService doesn't directly call its methods for the tested paths.
+        // The DonationRepository::create handles wallet logic.
+    }
+
+    #[async_trait]
+    impl WalletRepository for MockWalletRepository {
+        async fn find_by_user_id(&self, _user_id: i32) -> Result<Option<Wallet>, AppError> {
+            // Default behavior if not mocked:
+            // panic!("MockWalletRepository: find_by_user_id was not expected to be called in this test context");
+            // Or return a dummy if some indirect path required it, though unlikely for these tests.
+             Ok(Some(Wallet { id: 1, user_id: _user_id, balance: 1000.0, updated_at: Utc::now().naive_utc() }))
+        }
+        async fn update_balance(&self, _user_id: i32, _new_balance: f64) -> Result<(), AppError> {
+            // panic!("MockWalletRepository: update_balance was not expected to be called in this test context");
+            Ok(())
+        }
+        async fn create_wallet_if_not_exists(&self, _user_id: i32) -> Result<Wallet, AppError> {
+            // panic!("MockWalletRepository: create_wallet_if_not_exists was not expected to be called in this test context");
+            Ok(Wallet { id: 1, user_id: _user_id, balance: 0.0, updated_at: Utc::now().naive_utc() })
+        }
+    }
+
 
     // --- Completed Manual Mock for CampaignRepository ---
     #[derive(Clone)]
@@ -278,20 +356,32 @@ mod tests {
     fn test_make_donation_success() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mut mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new(); // Added
 
-        let expected_user_id_from_controller = 123; // Matches DUMMY_USER_ID in controller
+        let expected_user_id_from_auth = 123; // Matches DUMMY_USER_ID if your AuthUser guard provides this
         let expected_campaign_id = 1;
         let expected_amount = 50;
-        let returned_donation = sample_donation(1, expected_user_id_from_controller, expected_campaign_id, expected_amount);
-        
-        // 1. Expect campaign_repo.get_campaign to be called by the service
-        // Use the actual Campaign struct and the sample_campaign helper
-        let campaign_to_return = sample_campaign(expected_campaign_id, 10, "Active Campaign", CampaignStatus::Active);
+        let expected_message = "Hope this helps!".to_string();
 
+        let mut returned_donation = sample_donation(1, expected_user_id_from_auth, expected_campaign_id, expected_amount);
+        returned_donation.message = Some(expected_message.clone()); // Ensure message matches
+
+        // --- Campaign Setup ---
+        // Initial campaign state (target not met by this donation)
+        let mut initial_campaign = sample_campaign(expected_campaign_id, 10, "Active Campaign", CampaignStatus::Active);
+        initial_campaign.target_amount = 1000;
+        initial_campaign.collected_amount = 100; // Before this donation
+
+        // Campaign state after donation_repo.create (which updates collected_amount internally)
+        // This is what the service's re-fetch should find.
+        let mut campaign_after_donation_repo_update = initial_campaign.clone();
+        campaign_after_donation_repo_update.collected_amount += expected_amount; // 100 + 50 = 150
+
+        // 1. Expect campaign_repo.get_campaign (for initial service check)
         mock_campaign_repo.expect_get_campaign({
-            let c = campaign_to_return.clone();
+            let c = initial_campaign.clone();
             move |id| {
-                assert_eq!(id, expected_campaign_id, "Campaign ID mismatch in get_campaign mock");
+                assert_eq!(id, expected_campaign_id);
                 Ok(Some(c.clone()))
             }
         });
@@ -299,42 +389,163 @@ mod tests {
         // 2. Expect donation_repo.create to be called by the service
         mock_donation_repo.expect_create({
             let rd = returned_donation.clone();
+            let msg_clone = expected_message.clone();
             move |user_id, req| {
-                assert_eq!(user_id, expected_user_id_from_controller, "User ID mismatch in create_donation mock");
-                assert_eq!(req.campaign_id, expected_campaign_id, "Campaign ID mismatch in create_donation mock");
-                assert_eq!(req.amount, expected_amount, "Amount mismatch in create_donation mock");
-                assert_eq!(req.message, Some("Hope this helps!".to_string()), "Message mismatch in create_donation mock");
+                assert_eq!(user_id, expected_user_id_from_auth);
+                assert_eq!(req.campaign_id, expected_campaign_id);
+                assert_eq!(req.amount, expected_amount);
+                assert_eq!(req.message.as_ref().unwrap(), &msg_clone);
                 Ok(rd.clone())
             }
+        });
+
+        // 3. Expect campaign_repo.get_campaign AGAIN (for service re-fetch after donation)
+        mock_campaign_repo.expect_get_campaign({
+            let c_after = campaign_after_donation_repo_update.clone();
+            move |id| {
+                assert_eq!(id, expected_campaign_id);
+                Ok(Some(c_after.clone()))
+            }
+        });
+
+        // 4. Expect update_campaign_status NOT to be called (target not met)
+        // If the setup was such that target *is* met, this would change to expect a call.
+        mock_campaign_repo.expect_update_campaign_status(move |_id, _status| {
+            // This closure will panic if called, effectively a .never()
+            panic!("update_campaign_status should not be called in this scenario (target not met)");
+            // If you had a mockall-style mock, you'd use .never()
+            // For this manual mock, if it's not set, it will panic in the trait impl.
+            // Or, you can explicitly make it return an error if called.
+            // For simplicity, we're relying on the panic if not set for "never" behavior.
+            // A more robust manual mock would have a counter or a flag.
+        });
+
+
+        let donation_service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo), // Added
+        );
+        let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
+
+        let response = client
+            .post("/api/donations")
+            .header(ContentType::JSON)
+            .header(Header::new("X-Test-Auth-User-Id", expected_user_id_from_auth.to_string()))
+            .json(&json!({
+                "campaign_id": expected_campaign_id,
+                "amount": expected_amount,
+                "message": expected_message
+            }))
+            .dispatch();
+        
+        assert_eq!(response.status(), Status::Created, "Response: {:?}", response.into_string());
+        assert!(response.headers().get_one("Location").is_some());
+        let body = response.into_json::<Donation>().unwrap();
+        assert_eq!(body.id, returned_donation.id);
+        assert_eq!(body.amount, returned_donation.amount);
+        assert_eq!(body.message, returned_donation.message);
+    }
+
+    // You should also add a test similar to `test_make_donation_success`
+    // but where the donation *does* meet the campaign target, and then
+    // `mock_campaign_repo.expect_update_campaign_status` *is* called with CampaignStatus::Completed.
+    #[test]
+    fn test_make_donation_success_target_met_updates_status() {
+        let mut mock_donation_repo = MockDonationRepository::new();
+        let mut mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
+
+        let user_id = 123;
+        let campaign_id = 1;
+        let amount_to_donate = 500;
+        let message = "Meeting the target!".to_string();
+
+        let returned_donation = sample_donation(1, user_id, campaign_id, amount_to_donate);
+
+        let mut initial_campaign = sample_campaign(campaign_id, 10, "Almost There", CampaignStatus::Active);
+        initial_campaign.target_amount = 1000;
+        initial_campaign.collected_amount = 500; // Donation of 500 will meet target
+
+        let mut campaign_after_donation = initial_campaign.clone();
+        campaign_after_donation.collected_amount += amount_to_donate; // Now 1000
+
+        // 1. Initial get_campaign
+        mock_campaign_repo.expect_get_campaign({
+            let c = initial_campaign.clone();
+            move |id| if id == campaign_id { Ok(Some(c.clone())) } else { Ok(None) }
+        });
+
+        // 2. Create donation
+        mock_donation_repo.expect_create({
+            let rd = returned_donation.clone();
+            move |uid, req| {
+                assert_eq!(uid, user_id);
+                assert_eq!(req.campaign_id, campaign_id);
+                assert_eq!(req.amount, amount_to_donate);
+                Ok(rd.clone())
+            }
+        });
+
+        // 3. Re-fetch campaign
+        // This mock_campaign_repo.expect_get_campaign needs to be set for the *second* call.
+        // The manual mock makes this tricky. We need to ensure the mock_campaign_repo.get_campaign_fn
+        // is updated or handles multiple calls. For simplicity, let's assume the mock can be set once
+        // and the test logic relies on the correct sequence.
+        // A better manual mock would use a Vec of closures or a counter.
+        // For now, we'll re-set it, but this is a flaw of simple manual mocks.
+        // (If `expect_get_campaign` is called multiple times, the last one set wins with this mock)
+        // To handle multiple distinct calls correctly with this manual mock, you'd need to make the closure more complex,
+        // e.g., by using a counter within the closure's captured environment.
+        let get_campaign_call_count = Arc::new(Mutex::new(0));
+        mock_campaign_repo.expect_get_campaign({
+            let c_initial = initial_campaign.clone();
+            let c_after = campaign_after_donation.clone();
+            let count = get_campaign_call_count.clone();
+            move |id| {
+                let mut num = count.lock().unwrap();
+                *num += 1;
+                if id == campaign_id {
+                    if *num == 1 { Ok(Some(c_initial.clone())) }
+                    else if *num == 2 { Ok(Some(c_after.clone())) }
+                    else { panic!("get_campaign called too many times"); }
+                } else { Ok(None) }
+            }
+        });
+
+
+        // 4. Expect update_campaign_status to be called
+        mock_campaign_repo.expect_update_campaign_status(move |id, status| {
+            assert_eq!(id, campaign_id);
+            assert_eq!(status, CampaignStatus::Completed);
+            Ok(true) // Simulate successful status update
         });
 
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
-        
+
         let response = client
             .post("/api/donations")
             .header(ContentType::JSON)
             .json(&json!({
-                "campaign_id": expected_campaign_id,
-                "amount": expected_amount,
-                "message": "Hope this helps!"
+                "campaign_id": campaign_id,
+                "amount": amount_to_donate,
+                "message": message
             }))
             .dispatch();
 
-        assert_eq!(response.status(), Status::Created);
-        assert!(response.headers().get_one("Location").is_some());
-        let body = response.into_json::<Donation>().unwrap();
-        assert_eq!(body.id, returned_donation.id);
-        assert_eq!(body.amount, returned_donation.amount);
+        assert_eq!(response.status(), Status::Created, "Response: {:?}", response.into_string());
     }
 
     #[test]
     fn test_make_donation_campaign_not_found() {
         let mock_donation_repo = MockDonationRepository::new(); // No donation repo calls if campaign not found
         let mut mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
 
         let non_existent_campaign_id = 999;
 
@@ -346,6 +557,7 @@ mod tests {
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
 
@@ -369,11 +581,13 @@ mod tests {
     fn test_make_donation_service_validation_error() {
         let mock_donation_repo = MockDonationRepository::new();
         let mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
         // No expectations on repos are set, as service should validate before calling them.
 
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
         
@@ -395,6 +609,7 @@ mod tests {
     fn test_delete_donation_message_success() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mock_campaign_repo = MockCampaignRepository::new(); // Not used in this service method
+        let mock_wallet_repo = MockWalletRepository::new();
 
         let donation_id_to_delete = 1;
         let user_id_performing_delete = 123; // DUMMY_USER_ID from controller
@@ -409,6 +624,7 @@ mod tests {
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
 
@@ -424,6 +640,7 @@ mod tests {
     fn test_delete_donation_message_not_found_after_update() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
 
         let donation_id_non_existent = 99;
         let user_id_performing_delete = 123;
@@ -443,6 +660,7 @@ mod tests {
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
 
@@ -459,6 +677,7 @@ mod tests {
     fn test_delete_donation_message_forbidden_after_update() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
 
         let donation_id_exists = 1;
         let user_id_performing_delete = 123; // This is DUMMY_USER_ID from controller
@@ -486,6 +705,7 @@ mod tests {
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
 
@@ -503,6 +723,7 @@ mod tests {
     fn test_get_campaign_donations_success() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mock_campaign_repo = MockCampaignRepository::new(); // Not used in this service method
+        let mock_wallet_repo = MockWalletRepository::new();
 
         let campaign_id_to_query = 1;
         let donations_list = vec![
@@ -521,6 +742,7 @@ mod tests {
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
         let response = client.get(format!("/api/campaigns/{}/donations", campaign_id_to_query)).dispatch();
@@ -535,6 +757,7 @@ mod tests {
     fn test_get_campaign_donations_empty_result() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
 
         let campaign_id_to_query = 2;
         mock_donation_repo.expect_find_by_campaign(move |cid| {
@@ -545,6 +768,7 @@ mod tests {
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
         let response = client.get(format!("/api/campaigns/{}/donations", campaign_id_to_query)).dispatch();
@@ -558,6 +782,7 @@ mod tests {
     fn test_get_my_donations_success() {
         let mut mock_donation_repo = MockDonationRepository::new();
         let mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
 
         let user_id_querying = 123; // DUMMY_USER_ID from controller
         let donations_list = vec![
@@ -576,6 +801,7 @@ mod tests {
         let donation_service = DonationService::new(
             Arc::new(mock_donation_repo),
             Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo)
         );
         let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
         let response = client
@@ -588,4 +814,92 @@ mod tests {
         assert_eq!(body.len(), 2);
         assert_eq!(body[0].user_id, user_id_querying);
     }
+
+        // #[cfg(test)]
+    // mod tests {
+        // ... all previous mocks and helper functions ...
+
+    #[test]
+    fn test_get_campaign_total_donations_success() {
+        let mut mock_donation_repo = MockDonationRepository::new();
+        let mock_campaign_repo = MockCampaignRepository::new(); // For service construction
+        let mock_wallet_repo = MockWalletRepository::new();   // For service construction
+
+        let campaign_id_to_query = 5;
+        let expected_total = 1500i64;
+
+        mock_donation_repo.expect_get_total_donated_for_campaign(move |cid| {
+            assert_eq!(cid, campaign_id_to_query);
+            Ok(expected_total)
+        });
+
+        let donation_service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+        let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
+        let response = client.get(format!("/api/campaigns/{}/donations/total", campaign_id_to_query)).dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_json::<serde_json::Value>().unwrap(); // Assuming TotalAmountResponse
+        assert_eq!(body["total_amount"], expected_total);
+    }
+
+    #[test]
+    fn test_get_campaign_total_donations_repo_error() {
+        let mut mock_donation_repo = MockDonationRepository::new();
+        let mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
+
+        let campaign_id_to_query = 6;
+
+        mock_donation_repo.expect_get_total_donated_for_campaign(move |cid| {
+            assert_eq!(cid, campaign_id_to_query);
+            Err(AppError::DatabaseError("Failed to get total".to_string()))
+        });
+
+        let donation_service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+        let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
+        let response = client.get(format!("/api/campaigns/{}/donations/total", campaign_id_to_query)).dispatch();
+
+        assert_eq!(response.status(), Status::InternalServerError); // DatabaseError maps to 500
+        let body = response.into_json::<serde_json::Value>().unwrap();
+        assert_eq!(body["error"], "A database error occurred."); // Generic message for client
+    }
+
+
+    #[test]
+    fn test_get_my_total_donations_for_campaign_success() {
+        let mut mock_donation_repo = MockDonationRepository::new();
+        let mock_campaign_repo = MockCampaignRepository::new();
+        let mock_wallet_repo = MockWalletRepository::new();
+
+        let user_id_querying = 123; // DUMMY_USER_ID from AuthUser
+        let campaign_id_to_query = 7;
+        let expected_total = 750i64;
+
+        mock_donation_repo.expect_get_user_total_for_campaign(move |uid, cid| {
+            assert_eq!(uid, user_id_querying);
+            assert_eq!(cid, campaign_id_to_query);
+            Ok(expected_total)
+        });
+
+        let donation_service = DonationService::new(
+            Arc::new(mock_donation_repo),
+            Arc::new(mock_campaign_repo),
+            Arc::new(mock_wallet_repo),
+        );
+        let client = Client::tracked(create_test_rocket_with_service(donation_service)).expect("valid rocket instance");
+        let response = client.get(format!("/api/donations/me/campaigns/{}/total", campaign_id_to_query)).dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_json::<serde_json::Value>().unwrap();
+        assert_eq!(body["total_amount"], expected_total);
+    }
+    
 }

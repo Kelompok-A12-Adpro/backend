@@ -1,12 +1,18 @@
 use autometrics::autometrics;
 use rocket::{State, post, delete, get, routes, response::status};
 use rocket::serde::json::Json;
+use serde::Serialize;
 
 use crate::service::donation::donation_service::DonationService;
 
 use crate::model::donation::donation::{NewDonationRequest, Donation};
 use crate::errors::AppError;
 use crate::controller::auth::auth::AuthUser;
+
+#[derive(Serialize, Debug)]
+pub struct TotalAmountResponse {
+    pub total_amount: i64,
+}
 
 #[post("/donations", format = "json", data = "<donation_req>")]
 #[autometrics]
@@ -67,12 +73,35 @@ async fn get_my_donations_route(
     Ok(Json(donations))
 }
 
+#[get("/campaigns/<campaign_id>/donations/total")]
+#[autometrics]
+async fn get_campaign_total_donations_route(
+    donation_service: &State<DonationService>,
+    campaign_id: i32,
+) -> Result<Json<TotalAmountResponse>, AppError> {
+    let total = donation_service.get_total_donated_for_campaign_from_repo(campaign_id).await?;
+    Ok(Json(TotalAmountResponse { total_amount: total }))
+}
+
+#[get("/donations/me/campaigns/<campaign_id>/total")]
+#[autometrics]
+async fn get_my_total_donations_for_campaign_route(
+    auth_user: AuthUser,
+    donation_service: &State<DonationService>,
+    campaign_id: i32,
+) -> Result<Json<TotalAmountResponse>, AppError> {
+    let total = donation_service.get_my_total_for_campaign_from_repo(auth_user.id, campaign_id).await?;
+    Ok(Json(TotalAmountResponse { total_amount: total }))
+}
+
 
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         make_donation_route,
         delete_donation_message_route,
         get_campaign_donations_route,
-        get_my_donations_route
+        get_my_donations_route,
+        get_campaign_total_donations_route,
+        get_my_total_donations_for_campaign_route
     ]
 }
