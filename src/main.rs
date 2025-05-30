@@ -134,11 +134,7 @@ async fn rocket() -> _ {
         .mount("/api", routes![metrics])
         .register("/", catchers![not_found])
         .register("/admin", notification_catchers())
-        // .manage_state(app_state) // Your custom state management
-        .manage(app_state) // Standard Rocket way to manage state. 
-                           // If `manage_state` is a custom macro doing more, adapt as needed.
-                           // If `app_state` is an Arc<StateManagement>, you can manage it directly.
-                           // Or if StateManagement is cloneable and contains Arcs, it can be managed.
+        .manage_state(app_state) // Your custom state management
         .attach(cors)
         .mount("/", wallet_routes())
 }
