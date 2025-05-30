@@ -101,14 +101,14 @@ impl DonationRepository for PgDonationRepository {
             r#"
             INSERT INTO donations (user_id, 
                 campaign_id, 
-                COALESCE(amount::BIGINT, 0) as "amount!: i64", 
+                amount, 
                 message)
             VALUES ($1, $2, $3, $4)
             RETURNING id, user_id, campaign_id, amount, message, created_at
             "#,
             user_id,
             new_donation.campaign_id,
-            new_donation as f64.amount,
+            new_donation.amount as f64,
             new_donation.message
         )
         .fetch_one(&mut *tx) // Use the transaction object
@@ -250,7 +250,7 @@ impl DonationRepository for PgDonationRepository {
         let result = sqlx::query!(
             r#"
             UPDATE donations
-            SET message = $1, updated_at = NOW() AT TIME ZONE 'UTC' -- Assuming donations table has updated_at
+            SET message = $1
             WHERE id = $2 AND user_id = $3
             "#,
             message,
