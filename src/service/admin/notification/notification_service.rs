@@ -1,5 +1,5 @@
 use crate::errors::AppError;
-use crate::model::admin::notification::{CreateNotificationRequest, Notification};
+use crate::model::admin::notification::{CreateNotificationRequest, Notification, NotificationUser};
 use crate::repository::admin::new_campaign_subs_repo::NewCampaignSubscriptionRepository;
 use crate::repository::admin::notification_repo::NotificationRepository;
 use crate::service::admin::notification::notification_observer::NotificationObserver;
@@ -59,7 +59,7 @@ impl NotificationService {
         self.notification_repo.get_notification_by_id(notification_id).await
     }
 
-    pub async fn get_notifications_for_user(&self, user_id: i32) -> Result<Vec<Notification>, AppError> {
+    pub async fn get_notifications_for_user(&self, user_id: i32) -> Result<Vec<NotificationUser>, AppError> {
         if user_id <= 0 {
             return Err(AppError::ValidationError("Invalid user ID".to_string()));
         }
@@ -107,7 +107,7 @@ mod tests {
     use crate::errors::AppError;
     use crate::model::admin::new_campaign_subs::NewCampaignSubscription;
     use crate::model::admin::notification::{
-        CreateNotificationRequest, Notification, NotificationTargetType,
+        CreateNotificationRequest, Notification, NotificationTargetType, NotificationUser,
     };
     use crate::service::admin::notification::notification_observer::NotificationObserver;
     use chrono::Utc;
@@ -282,7 +282,7 @@ mod tests {
             Ok(self.notifications.lock().unwrap().clone())
         }
 
-        async fn get_notification_for_user(&self, _user_id: i32) -> Result<Vec<Notification>, AppError> {
+        async fn get_notification_for_user(&self, _user_id: i32) -> Result<Vec<NotificationUser>, AppError> {
             if *self.should_fail.lock().unwrap() {
                 return Err(AppError::DatabaseError("Get for user failed".to_string()));
             }

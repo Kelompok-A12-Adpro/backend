@@ -1,6 +1,6 @@
 use crate::errors::AppError;
 use crate::model::admin::notification::{
-    CreateNotificationRequest, Notification, NotificationTargetType, validate_request,
+    validate_request, CreateNotificationRequest, Notification, NotificationTargetType, NotificationUser
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -11,7 +11,7 @@ pub trait NotificationRepository: Send + Sync {
     async fn create_notification(&self, notification: &CreateNotificationRequest, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<Notification, AppError>;
     async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<i32>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError>;
     async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError>;
-    async fn get_notification_for_user(&self, user_id: i32) -> Result<Vec<Notification>, AppError>;
+    async fn get_notification_for_user(&self, user_id: i32) -> Result<Vec<NotificationUser>, AppError>;
     async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError>;
     async fn mark_notification_as_read(&self, notification_id: i32, user_id: i32) -> Result<bool, AppError>;
     async fn delete_notification_user(&self, notification_id: i32, user_id: i32) -> Result<bool, AppError>;
@@ -165,7 +165,7 @@ impl NotificationRepository for DbNotificationRepository {
         Ok(notifications)
     }
 
-    async fn get_notification_for_user(&self, user_id: i32) -> Result<Vec<Notification>, AppError> {
+    async fn get_notification_for_user(&self, user_id: i32) -> Result<Vec<NotificationUser>, AppError> {
         let mut conn = self
             .pool
             .acquire()
@@ -173,19 +173,20 @@ impl NotificationRepository for DbNotificationRepository {
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         
         let notifications = sqlx::query!(
-            "SELECT * FROM notification
-                WHERE target_type = $1 OR notification.id IN (
-                    SELECT notification_id
-                    FROM notification_user 
-                    WHERE user_id = $2)",
-            NotificationTargetType::AllUsers.to_string(),
+            "SELECT n.*, COALESCE(nu.marked_as_read, false) as marked_as_read
+            FROM notification n
+            LEFT JOIN notification_user nu ON n.id = nu.notification_id AND nu.user_id = $1
+            WHERE n.target_type = 'AllUsers' OR n.id IN (
+                SELECT notification_id
+                FROM notification_user 
+                WHERE user_id = $1)",
             user_id
         )
         .fetch_all(&mut *conn)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .into_iter()
-        .map(|row| Notification {
+        .map(|row| NotificationUser {
             id: row.id,
             title: row.title,
             content: row.content,
@@ -193,6 +194,7 @@ impl NotificationRepository for DbNotificationRepository {
             target_type: NotificationTargetType::from_string(
                 &row.target_type
             ).unwrap_or(NotificationTargetType::AllUsers),
+            marked_as_read: row.marked_as_read.unwrap_or(false),
         })
         .collect();
 

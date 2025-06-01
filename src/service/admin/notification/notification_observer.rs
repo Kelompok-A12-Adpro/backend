@@ -46,7 +46,7 @@ impl NotificationObserver for SubscriberService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::get_test_pool, model::admin::notification::{Notification, NotificationTargetType}};
+    use crate::{db::get_test_pool, model::admin::notification::{Notification, NotificationTargetType, NotificationUser}};
     use chrono::Utc;
     use std::sync::{Arc, Mutex};
 
@@ -183,7 +183,7 @@ mod tests {
         async fn get_notification_for_user(
             &self,
             _user_id: i32,
-        ) -> Result<Vec<Notification>, AppError> {
+        ) -> Result<Vec<NotificationUser>, AppError> {
             if self.should_fail_transaction.lock().unwrap().clone() {
                 Err(AppError::DatabaseError("Mock error".to_string()))
             } else {

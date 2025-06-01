@@ -43,6 +43,16 @@ pub struct Notification {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationUser{
+    pub id: i32,
+    pub title: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub target_type: NotificationTargetType,
+    pub marked_as_read: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateNotificationRequest {
     pub title: String,
     pub content: String,

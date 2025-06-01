@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::controller::auth::auth::AuthUser;
 use crate::errors::AppError;
 use crate::model::admin::notification::{
-    CreateNotificationRequest, Notification,
+    CreateNotificationRequest, Notification, NotificationUser,
 };
 use crate::service::admin::notification::notification_service::NotificationService;
 use autometrics::autometrics;
@@ -116,7 +116,7 @@ async fn delete_notification(
 async fn get_notifications(
     auth_user: AuthUser,
     service: &State<Arc<NotificationService>>,
-) -> Json<ApiResponse<Vec<Notification>>> {
+) -> Json<ApiResponse<Vec<NotificationUser>>> {
     let notifications = service
         .get_notifications_for_user(auth_user.id)
         .await
