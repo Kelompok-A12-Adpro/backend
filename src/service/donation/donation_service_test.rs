@@ -14,6 +14,8 @@ mod tests {
     use crate::service::commands::donation_commands::{
         MakeDonationCommand, DeleteDonationMessageCommand,
     };
+    use crate::service::admin::notification::notification_service::NotificationService;
+    use rocket::State;
     use async_trait::async_trait;
     use chrono::{Utc, Duration};
     use mockall::mock; // Import the mock macro
@@ -77,6 +79,16 @@ mod tests {
         }
     }
 
+    mock! {
+        pub TestNotificationService {
+        }
+
+        #[async_trait]
+        impl NotificationService for TestNotificationService {
+            async fn notify(&self, request: crate::model::admin::notification::CreateNotificationRequest) -> Result<(), AppError>;
+        }
+    }
+
     // Helper to create a dummy wallet for tests if needed in expectations
     fn dummy_wallet(id: i32, user_id: i32, balance: f64) -> Wallet {
         Wallet {
@@ -115,6 +127,8 @@ mod tests {
         let mut mock_donation_repo = MockTestDonationRepo::new();
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let donor_id = 1;
         let campaign_id = 10;
         let donation_amount = 50;
@@ -186,7 +200,7 @@ mod tests {
             amount: donation_amount,
             message: None,
         };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         assert!(result.is_ok(), "Expected Ok, got {:?}", result.err());
         let donation_received = result.unwrap();
@@ -200,6 +214,8 @@ mod tests {
         let mock_donation_repo = MockTestDonationRepo::new();
         let mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let service =
             DonationService::new(
                 Arc::new(mock_donation_repo), 
@@ -212,7 +228,7 @@ mod tests {
             amount: 0,
             message: None,
         };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         assert!(result.is_err());
         match result.err().unwrap() {
@@ -227,6 +243,8 @@ mod tests {
         let mock_donation_repo = MockTestDonationRepo::new(); // No methods expected on this repo for this path
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new(); // No methods expected on this repo for this path
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
 
         let campaign_id_to_test = 99; // The ID for the campaign that won't be found
 
@@ -255,7 +273,7 @@ mod tests {
         };
 
         // 5. Call the Service Method
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         // 6. Assert the Outcome
         assert!(result.is_err(), "Expected service.make_donation to return an error.");
@@ -286,6 +304,8 @@ mod tests {
         let mock_donation_repo = MockTestDonationRepo::new();
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let campaign_id = 10;
 
         mock_campaign_repo
@@ -306,7 +326,7 @@ mod tests {
             amount: 50,
             message: None,
         };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         assert!(result.is_err());
         match result.err().unwrap() {
@@ -320,6 +340,8 @@ mod tests {
         let mut mock_donation_repo = MockTestDonationRepo::new();
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let donor_id = 1;
         let campaign_id = 10;
         let amount = 50;
@@ -353,7 +375,7 @@ mod tests {
             amount,
             message: None,
         };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         assert!(result.is_err());
         match result.err().unwrap() {
@@ -714,6 +736,8 @@ mod tests {
         let mock_donation_repo = MockTestDonationRepo::new(); // Not expected to be called
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let campaign_id = 10;
 
         // Campaign is PendingVerification, not Active
@@ -737,7 +761,7 @@ mod tests {
             amount: 50,
             message: None,
         };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         assert!(result.is_err());
         match result.err().unwrap() {
@@ -754,6 +778,8 @@ mod tests {
         let mut mock_donation_repo = MockTestDonationRepo::new();
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let donor_id = 1;
         let campaign_id = 10;
         let donation_amount = 50;
@@ -803,7 +829,7 @@ mod tests {
             Arc::new(mock_campaign_repo), 
             Arc::new(mock_wallet_repo));
         let cmd = MakeDonationCommand { donor_id, campaign_id, amount: donation_amount, message: None };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         assert!(result.is_ok());
         // Further assertions if needed on the returned donation
@@ -814,6 +840,8 @@ mod tests {
         let mut mock_donation_repo = MockTestDonationRepo::new();
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let donor_id = 1;
         let campaign_id = 10;
         let donation_amount = 50;
@@ -855,7 +883,7 @@ mod tests {
             Arc::new(mock_campaign_repo), 
             Arc::new(mock_wallet_repo));
         let cmd = MakeDonationCommand { donor_id, campaign_id, amount: donation_amount, message: None };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         // The donation itself should still be successful
         assert!(result.is_ok(), "Donation should succeed even if status update fails. Got: {:?}", result.err());
@@ -870,6 +898,8 @@ mod tests {
         let mut mock_donation_repo = MockTestDonationRepo::new();
         let mut mock_campaign_repo = MockTestCampaignRepo::new();
         let mock_wallet_repo = MockTestWalletRepo::new();
+        let mock_notification_service = MockTestNotificationService::new();
+        let notification_state = State::from(Arc::new(mock_notification_service));
         let donor_id = 1;
         let campaign_id = 10;
         let donation_amount = 50;
@@ -903,7 +933,7 @@ mod tests {
             Arc::new(mock_campaign_repo), 
             Arc::new(mock_wallet_repo));
         let cmd = MakeDonationCommand { donor_id, campaign_id, amount: donation_amount, message: None };
-        let result = service.make_donation(cmd).await;
+        let result = service.make_donation(cmd, &notification_state).await;
 
         assert!(result.is_err());
         match result.err().unwrap() {

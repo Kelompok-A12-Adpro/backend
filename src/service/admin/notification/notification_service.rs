@@ -75,7 +75,7 @@ impl NotificationService {
         self.notification_repo.delete_notification(notification_id).await
     }
 
-    pub async fn delete_notification_for_user(&self, notification_id: i32, user_email: String) -> Result<bool, AppError> {
+    pub async fn mark_notification_as_read(&self, notification_id: i32, user_id: i32) -> Result<bool, AppError> {
         if notification_id <= 0 {
             return Err(AppError::ValidationError("Invalid notification ID".to_string()));
         }
@@ -84,7 +84,20 @@ impl NotificationService {
             return Err(AppError::ValidationError("Invalid user ID".to_string()));
         }
 
-        self.notification_repo.delete_notification_user(notification_id, user_email).await
+        self.notification_repo.mark_notification_as_read(notification_id, user_id).await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to mark notification as read: {}", e)))
+    }
+
+    pub async fn delete_notification_for_user(&self, notification_id: i32, user_id: i32) -> Result<bool, AppError> {
+        if notification_id <= 0 {
+            return Err(AppError::ValidationError("Invalid notification ID".to_string()));
+        }
+        
+        if user_id <= 0 {
+            return Err(AppError::ValidationError("Invalid user ID".to_string()));
+        }
+
+        self.notification_repo.delete_notification_user(notification_id, user_id).await
     }
 }
 

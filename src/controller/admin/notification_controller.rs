@@ -8,7 +8,7 @@ use crate::model::admin::notification::{
 use crate::service::admin::notification::notification_service::NotificationService;
 use autometrics::autometrics;
 use rocket::serde::json::Json;
-use rocket::{catch, delete, get, post, routes, State};
+use rocket::{catch, delete, get, post, put, routes, State};
 use serde::{Deserialize, Serialize};
 
 #[catch(422)]
@@ -127,6 +127,30 @@ async fn get_notifications(
         message: "Notifications retrieved successfully".to_string(),
         data: Some(notifications),
     })
+}
+
+#[put("/notifications/<notification_id>")]
+#[autometrics]
+async fn mark_notification_as_read(
+    auth_user: AuthUser,
+    service: &State<Arc<NotificationService>>,
+    notification_id: i32,
+) -> Json<ApiResponse<String>> {
+    match service
+        .mark_notification_as_read(notification_id, auth_user.id)
+        .await
+    {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            message: "Notification marked as read".to_string(),
+            data: None,
+        }),
+        Err(_) => Json(ApiResponse {
+            success: false,
+            message: format!("Notification with ID {} not found", notification_id),
+            data: None,
+        }),
+    }
 }
 
 #[post("/subscribe", format = "json")]
