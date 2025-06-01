@@ -222,6 +222,7 @@ pub fn user_routes() -> Vec<rocket::Route> {
         get_notifications,
         subscribe_to_notification,
         unsubscribe_from_notification,
+        mark_notification_as_read,
         delete_notification_user
     ]
 }
