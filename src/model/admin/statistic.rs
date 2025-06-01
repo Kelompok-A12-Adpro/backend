@@ -23,6 +23,26 @@ pub struct RecentDonation {
     pub date: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CampaignStat {
+    pub id: i32,
+    pub name: String,
+    pub description: String,
+    pub target_amount: i64,
+    pub status: String,
+    pub current_amount: i64,
+    pub progress_percentage: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DonationStat {
+    pub id: i32,
+    pub amount: i64,
+    pub campaign_id: i32,
+    pub campaign_name: String,
+    pub date: String,
+}
+
 
 #[cfg(test)]
 mod tests {

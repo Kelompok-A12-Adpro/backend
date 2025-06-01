@@ -1,5 +1,5 @@
 use crate::errors::AppError;
-use crate::model::admin::statistic::{DataStatistic, RecentDonation, TransactionData};
+use crate::model::admin::statistic::{CampaignStat, DataStatistic, DonationStat, RecentDonation, TransactionData};
 
 pub struct StatisticService {
     pub pool: sqlx::PgPool,
@@ -91,6 +91,55 @@ impl StatisticService {
                 LIMIT $1
             "#,
             limit.unwrap_or(10000) // Default to 10,000 if no limit is provided
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result)
+    }
+
+    pub async fn get_all_campaigns_with_progress(&self) -> Result<Vec<CampaignStat>, AppError> {
+        let result = sqlx::query_as!(
+            CampaignStat,
+            r#"
+                SELECT
+                    c.id AS "id!: i32",
+                    c.name AS "name!",
+                    c.description AS "description!",
+                    c.target_amount AS "target_amount!: i64",
+                    c.status AS "status!",
+                    c.collected_amount AS "current_amount!: i64",
+                    CASE 
+                        WHEN c.target_amount > 0 THEN 
+                            ROUND((c.collected_amount::NUMERIC / c.target_amount::NUMERIC) * 100.0, 2)::DOUBLE PRECISION
+                        ELSE 0.0
+                    END AS "progress_percentage!: f64"
+                FROM campaigns c
+                ORDER BY c.created_at DESC
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result)
+    }
+
+    pub async fn get_all_donations(&self) -> Result<Vec<DonationStat>, AppError> {
+        let result = sqlx::query_as!(
+            DonationStat,
+            r#"
+                SELECT
+                    d.id AS "id!: i32",
+                    d.amount AS "amount!: i64",
+                    COALESCE(c.id, 0) AS "campaign_id!: i32",
+                    COALESCE(c.name, 'Unknown Campaign') AS "campaign_name!",
+                    TO_CHAR(d.created_at, 'YYYY-MM-DD') AS "date!"
+                FROM donations d
+                    LEFT JOIN campaigns c ON d.campaign_id = c.id
+                ORDER BY d.created_at DESC
+            "#
         )
         .fetch_all(&self.pool)
         .await

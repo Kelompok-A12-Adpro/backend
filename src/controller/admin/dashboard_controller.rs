@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rocket::{State, get, routes};
 use rocket::serde::json::Json;
 use crate::service::admin::platform_statistics_service::{StatisticService};
-use crate::model::admin::statistic::{DataStatistic, RecentDonation, TransactionData};
+use crate::model::admin::statistic::{CampaignStat, DataStatistic, DonationStat, RecentDonation, TransactionData};
 use crate::errors::AppError;
 use crate::controller::auth::auth::AuthUser;
 use serde::{Deserialize, Serialize};
@@ -87,12 +87,47 @@ async fn get_recent_transactions(
     }))
 }
 
+#[get("/campaigns/statistics")]
+async fn get_campaign_statistics(
+    auth_user: AuthUser,
+    service: &State<Arc<StatisticService>>,
+) -> Result<Json<ApiResponse<Vec<CampaignStat>>>, AppError> {
+    admin_check(auth_user)?;
+
+    let campaign_stats = service.get_all_campaigns_with_progress().await?;
+    
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Campaign statistics retrieved successfully".to_string(),
+        data: Some(campaign_stats),
+    }))
+}
+
+#[get("/donations/statistics")]
+async fn get_donation_statistics(
+    auth_user: AuthUser,
+    service: &State<Arc<StatisticService>>,
+) -> Result<Json<ApiResponse<Vec<DonationStat>>>, AppError> {
+    admin_check(auth_user)?;
+
+    let donation_stats = service.get_all_donations().await?;
+    
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Donation statistics retrieved successfully".to_string(),
+        data: Some(donation_stats),
+    }))
+}
+
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         get_statistics,
         get_daily_transaction_statistics,
         get_weekly_transaction_statistics,
-        get_recent_transactions
+        get_recent_transactions,
+        get_campaign_statistics,
+        get_donation_statistics
     ]
 }
 
