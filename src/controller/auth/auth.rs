@@ -43,7 +43,10 @@ impl<'r> FromRequest<'r> for AuthUser {
                     is_admin: c.is_admin,
                 })
             }
-            Err(_) => Outcome::Forward(Status::Unauthorized),
+            Err(err) => {
+                eprintln!("JWT decode error: {}", err);
+                Outcome::Forward(Status::Unauthorized)
+            }
         }
     }
 }
