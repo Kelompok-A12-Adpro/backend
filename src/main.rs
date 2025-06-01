@@ -133,7 +133,7 @@ async fn rocket() -> _ {
         .mount("/api/donation", donation_routes())
         .mount("/api", routes![metrics])
         .register("/", catchers![not_found])
-        .register("/admin", notification_catchers())
+        .register("/api/admin", notification_catchers())
         .manage_state(app_state) // Your custom state management
         .attach(cors)
         .mount("/", wallet_routes())
