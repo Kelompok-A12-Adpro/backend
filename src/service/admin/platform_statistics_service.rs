@@ -83,7 +83,7 @@ impl StatisticService {
                 SELECT
                     d.id AS "id!: i32",
                     d.amount AS "amount!: i64",
-                    c.name AS "campaign!",
+                    COALESCE(c.name, 'Unknown Campaign') AS "campaign!",
                     TO_CHAR(d.created_at, 'YYYY-MM-DD') AS "date!"
                 FROM donations d
                     LEFT JOIN campaigns c ON d.campaign_id = c.id
