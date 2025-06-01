@@ -26,15 +26,15 @@ CREATE TABLE IF NOT EXISTS notification (
 
 -- New Campaign Announcement Subscription table
 CREATE TABLE IF NOT EXISTS announcement_subscription (
-    user_email VARCHAR(255) NOT NULL PRIMARY KEY,
+    user_id INT NOT NULL PRIMARY KEY,
     start_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Announcement for User table
 CREATE TABLE IF NOT EXISTS notification_user (
-    user_email VARCHAR(255) NOT NULL,
-    announcement_id INT NOT NULL,
-    created_at timestamp NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_email, announcement_id),
-    FOREIGN KEY (announcement_id) REFERENCES notification(id) ON DELETE CASCADE
+    user_id INT NOT NULL,
+    notification_id INT NOT NULL,
+    marked_as_read BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (user_id, notification_id),
+    FOREIGN KEY (notification_id) REFERENCES notification(id) ON DELETE CASCADE
 );

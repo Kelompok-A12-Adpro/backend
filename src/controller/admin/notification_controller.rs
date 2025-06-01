@@ -118,7 +118,7 @@ async fn get_notifications(
     service: &State<Arc<NotificationService>>,
 ) -> Json<ApiResponse<Vec<Notification>>> {
     let notifications = service
-        .get_notifications_for_user(auth_user.email)
+        .get_notifications_for_user(auth_user.id)
         .await
         .unwrap_or_default();
 
@@ -135,9 +135,7 @@ async fn subscribe_to_notification(
     auth_user: AuthUser,
     service: &State<Arc<NotificationService>>,
 ) -> Json<ApiResponse<String>> {
-    let user_email = auth_user.email.clone();
-
-    match service.subscribe(user_email).await {
+    match service.subscribe(auth_user.id).await {
         Ok(_) => Json(ApiResponse {
             success: true,
             message: "Subscribed successfully".to_string(),
@@ -157,9 +155,7 @@ async fn unsubscribe_from_notification(
     auth_user: AuthUser,
     service: &State<Arc<NotificationService>>,
 ) -> Json<ApiResponse<String>> {
-    let user_email = auth_user.email.clone();
-
-    match service.unsubscribe(user_email).await {
+    match service.unsubscribe(auth_user.id).await {
         Ok(_) => Json(ApiResponse {
             success: true,
             message: "Unsubscribed successfully".to_string(),
@@ -181,7 +177,7 @@ async fn delete_notification_user(
     notification_id: i32,
 ) -> Json<ApiResponse<String>> {
     match service
-        .delete_notification_for_user(notification_id, auth_user.email)
+        .delete_notification_for_user(notification_id, auth_user.id)
         .await
     {
         Ok(_) => Json(ApiResponse {

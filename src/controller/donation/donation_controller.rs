@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use autometrics::autometrics;
 use rocket::{State, post, delete, get, routes, response::status};
 use rocket::serde::json::Json;
 use serde::Serialize;
 
+use crate::service::admin::notification::notification_service::NotificationService;
 use crate::service::donation::donation_service::DonationService;
 
 use crate::model::donation::donation::{NewDonationRequest, Donation};
@@ -20,6 +23,7 @@ async fn make_donation_route(
     auth_user: AuthUser,
     donation_service: &State<DonationService>, // Or &State<Arc<dyn DonationServiceTrait>>
     donation_req: Json<NewDonationRequest>,
+    notification_service: &State<Arc<NotificationService>>,
 ) -> Result<status::Created<Json<Donation>>, AppError> { // Changed to return 201 Created
 
     let cmd = crate::service::commands::donation_commands::MakeDonationCommand {
@@ -28,7 +32,7 @@ async fn make_donation_route(
         amount: donation_req.amount,
         message: donation_req.message.clone(),
     };
-    let donation = donation_service.make_donation(cmd).await?;
+    let donation = donation_service.make_donation(cmd, notification_service).await?;
     let location = format!("/api/donations/{}", donation.id); // Construct location for 201
     Ok(status::Created::new(location).body(Json(donation)))
 }

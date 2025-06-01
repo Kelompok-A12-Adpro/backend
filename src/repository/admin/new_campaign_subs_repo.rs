@@ -4,8 +4,8 @@ use async_trait::async_trait;
 
 #[async_trait] // Observer repo
 pub trait NewCampaignSubscriptionRepository: Send + Sync {
-    async fn subscribe(&self, user_email: String) -> Result<(), AppError>;
-    async fn unsubscribe(&self, user_email: String) -> Result<(), AppError>;
+    async fn subscribe(&self, user_id: i32) -> Result<(), AppError>;
+    async fn unsubscribe(&self, user_id: i32) -> Result<(), AppError>;
     async fn get_subscribers(&self) -> Result<Vec<NewCampaignSubscription>, AppError>;
 }
 
@@ -21,10 +21,10 @@ impl DbNewCampaignSubscriptionRepository {
 
 #[async_trait]
 impl NewCampaignSubscriptionRepository for DbNewCampaignSubscriptionRepository {
-    async fn subscribe(&self, user_email: String) -> Result<(), AppError> {
+    async fn subscribe(&self, user_id: i32) -> Result<(), AppError> {
         sqlx::query!(
-            "INSERT INTO announcement_subscription (user_email) VALUES ($1)",
-            user_email
+            "INSERT INTO announcement_subscription (user_id) VALUES ($1)",
+            user_id
         )
         .execute(&self.pool)
         .await
@@ -32,10 +32,10 @@ impl NewCampaignSubscriptionRepository for DbNewCampaignSubscriptionRepository {
         Ok(())
     }
 
-    async fn unsubscribe(&self, user_email: String) -> Result<(), AppError> {
+    async fn unsubscribe(&self, user_id: i32) -> Result<(), AppError> {
         sqlx::query!(
-            "DELETE FROM announcement_subscription WHERE user_email = $1",
-            user_email
+            "DELETE FROM announcement_subscription WHERE user_id = $1",
+            user_id
         )
         .execute(&self.pool)
         .await
@@ -44,7 +44,7 @@ impl NewCampaignSubscriptionRepository for DbNewCampaignSubscriptionRepository {
     }
 
     async fn get_subscribers(&self) -> Result<Vec<NewCampaignSubscription>, AppError> {
-        let rows = sqlx::query!("SELECT user_email, start_at FROM announcement_subscription")
+        let rows = sqlx::query!("SELECT user_id, start_at FROM announcement_subscription")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -52,7 +52,7 @@ impl NewCampaignSubscriptionRepository for DbNewCampaignSubscriptionRepository {
         let subscribers: Vec<NewCampaignSubscription> = rows
             .into_iter()
             .map(|row| NewCampaignSubscription {
-                user_email: row.user_email,
+                user_id: row.user_id,
                 start_at: row.start_at.and_utc(),
             })
             .collect();
@@ -101,14 +101,14 @@ mod tests {
                         ))
                 )"#,
                 r#"CREATE TABLE announcement_subscription (
-                    user_email VARCHAR(255) NOT NULL PRIMARY KEY,
+                    user_id VARCHAR(255) NOT NULL PRIMARY KEY,
                     start_at timestamp NOT NULL DEFAULT NOW()
                 )"#,
                 r#"CREATE TABLE notification_user (
-                    user_email VARCHAR(255) NOT NULL,
+                    user_id VARCHAR(255) NOT NULL,
                     announcement_id INT NOT NULL,
                     created_at timestamp NOT NULL DEFAULT NOW(),
-                    PRIMARY KEY (user_email, announcement_id),
+                    PRIMARY KEY (user_id, announcement_id),
                     FOREIGN KEY (announcement_id) REFERENCES notification(id) ON DELETE CASCADE
                 )"#,
             ];
@@ -138,9 +138,9 @@ mod tests {
         let repo = create_test_repo().await;
         cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
 
-        let email = "greg@gmail.com";
+        let id = 1;
         
-        let subscribe_result = repo.subscribe(email.to_string()).await;
+        let subscribe_result = repo.subscribe(id).await;
         assert!(subscribe_result.is_ok(), "Failed to subscribe: {:?}", subscribe_result);
 
         let subscribers = repo.get_subscribers().await;
@@ -148,7 +148,7 @@ mod tests {
 
         let subscribers = subscribers.unwrap();
         assert_eq!(subscribers.len(), 1, "Expected 1 subscriber");
-        assert_eq!(subscribers[0].user_email, email, "Subscriber email mismatch");
+        assert_eq!(subscribers[0].user_id, 1, "Subscriber email mismatch");
         assert!(!subscribers[0].start_at.to_string().is_empty(), "Start time should be set");
     }
 
@@ -158,9 +158,9 @@ mod tests {
         let repo = create_test_repo().await;
         cleanup_test_data(&repo.pool).await.expect("Failed to cleanup test data");
 
-        let email = "greg@gmail.com";
+        let id = 1;
 
-        let subscribe_result = repo.subscribe(email.to_string()).await;
+        let subscribe_result = repo.subscribe(id).await;
         assert!(subscribe_result.is_ok(), "Failed to subscribe: {:?}", subscribe_result);
 
         let subscribers = repo.get_subscribers().await;
@@ -169,7 +169,7 @@ mod tests {
         let subscribers = subscribers.unwrap();
         assert_eq!(subscribers.len(), 1, "Expected 1 subscriber");
 
-        let unsubscribe_result = repo.unsubscribe(email.to_string()).await;
+        let unsubscribe_result = repo.unsubscribe(id).await;
         assert!(unsubscribe_result.is_ok(), "Failed to unsubscribe: {:?}", unsubscribe_result);
 
         let subscribers = repo.get_subscribers().await;

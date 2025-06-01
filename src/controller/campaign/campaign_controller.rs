@@ -7,10 +7,8 @@ use rocket::response::status::Created;
 use std::sync::Arc;
 use serde::Deserialize;
 
-use crate::controller::auth;
-use crate::model::admin::notification;
-use crate::model::campaign::campaign::{Campaign, CampaignStatus};
-use crate::service::admin::notification::notification_service::{self, NotificationService};
+use crate::model::campaign::campaign::Campaign;
+use crate::service::admin::notification::notification_service::NotificationService;
 use crate::service::campaign::campaign_service::CampaignService;
 use crate::errors::AppError;
 
@@ -33,7 +31,6 @@ pub struct UpdateCampaignRequest {
     pub target_amount: Option<i64>,
     pub end_date: Option<DateTime<Utc>>,
     pub image_url: Option<String>,
-
 }
 
 #[post("/campaigns", format = "json", data = "<campaign_req>")]
@@ -147,17 +144,11 @@ async fn get_user_campaign_by_id(
         .map_err(|_| Status::InternalServerError)
 }
 
-#[derive(Deserialize)]
-pub struct ApproveCampaignRequest {
-    pub admin_id: i32,
-}
-
 // TODO: need to implement proper authentication and authorization for admin actions
-#[put("/campaigns/<campaign_id>/approve", format = "json", data = "<_approve_req>")]
+#[put("/campaigns/<campaign_id>/approve", format = "json")]
 async fn approve_campaign(
     auth: AuthUser,
     campaign_id: i32,
-    _approve_req: Json<ApproveCampaignRequest>,
     service: &State<Arc<CampaignService>>,
     notification_service: &State<Arc<NotificationService>>
 ) -> Result<Json<Campaign>, Status> {
@@ -178,9 +169,9 @@ async fn approve_campaign(
 
 #[derive(Deserialize)]
 pub struct RejectCampaignRequest {
-    pub admin_id: i32,
     pub reason: Option<String>,
 }
+
 // TODO: need to implement proper authentication and authorization for admin actions
 #[put("/campaigns/<campaign_id>/reject", format = "json", data = "<reject_req>")]
 async fn reject_campaign(
@@ -206,18 +197,13 @@ async fn reject_campaign(
     }
 }
 
-#[derive(Deserialize)]
-pub struct CompleteCampaignRequest {
-    pub admin_id: i32,
-}
-
-#[put("/campaigns/<campaign_id>/complete", format = "json", data= "<_complete_req>")]
+#[put("/campaigns/<campaign_id>/complete", format = "json")]
 async fn complete_campaign(
     campaign_id: i32,
-    _complete_req: Json<CompleteCampaignRequest>,
-    service: &State<Arc<CampaignService>>
+    service: &State<Arc<CampaignService>>,
+    notification_service: &State<Arc<NotificationService>>
 ) -> Result<Json<Campaign>, Status> {
-    match service.complete_campaign(campaign_id).await {
+    match service.complete_campaign(campaign_id, notification_service).await {
         Ok(campaign) => Ok(Json(campaign)),
         Err(AppError::NotFound(_)) => Err(Status::NotFound),
         Err(AppError::InvalidOperation(_)) => Err(Status::BadRequest),

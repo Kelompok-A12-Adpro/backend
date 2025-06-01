@@ -53,7 +53,7 @@ mod tests {
     // Mock implementation for testing the trait contract
     struct MockObserver {
         observer_email: String,
-        last_notification: Arc<Mutex<Option<(Notification, Option<String>)>>>,
+        last_notification: Arc<Mutex<Option<(Notification, Option<i32>)>>>,
     }
 
     impl MockObserver {
@@ -64,7 +64,7 @@ mod tests {
             }
         }
 
-        fn get_last_notification(&self) -> Option<(Notification, Option<String>)> {
+        fn get_last_notification(&self) -> Option<(Notification, Option<i32>)> {
             self.last_notification.lock().unwrap().clone()
         }
     }
@@ -93,7 +93,7 @@ mod tests {
         should_fail_push: Arc<Mutex<bool>>,
         should_fail_transaction: Arc<Mutex<bool>>,
         created_notifications: Arc<Mutex<Vec<CreateNotificationRequest>>>,
-        pushed_notifications: Arc<Mutex<Vec<(NotificationTargetType, Option<String>, i32)>>>,
+        pushed_notifications: Arc<Mutex<Vec<(NotificationTargetType, Option<i32>, i32)>>>,
     }
 
     impl MockNotificationRepository {
@@ -123,7 +123,7 @@ mod tests {
             self.created_notifications.lock().unwrap().clone()
         }
 
-        fn get_pushed_notifications(&self) -> Vec<(NotificationTargetType, Option<String>, i32)> {
+        fn get_pushed_notifications(&self) -> Vec<(NotificationTargetType, Option<i32>, i32)> {
             self.pushed_notifications.lock().unwrap().clone()
         }
     }
@@ -160,7 +160,7 @@ mod tests {
         async fn push_notification(
             &self,
             target: NotificationTargetType,
-            adt_details: Option<String>,
+            adt_details: Option<i32>,
             notification_id: i32,
             tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         ) -> Result<bool, AppError> {
@@ -182,7 +182,7 @@ mod tests {
 
         async fn get_notification_for_user(
             &self,
-            _user_email: String,
+            _user_id: i32,
         ) -> Result<Vec<Notification>, AppError> {
             if self.should_fail_transaction.lock().unwrap().clone() {
                 Err(AppError::DatabaseError("Mock error".to_string()))
@@ -210,10 +210,22 @@ mod tests {
             }
         }
 
+        async fn mark_notification_as_read(
+            &self,
+            _notification_id: i32,
+            user_id: i32,
+        ) -> Result<bool, AppError> {
+            if self.should_fail_transaction.lock().unwrap().clone() {
+                Err(AppError::DatabaseError("Mock error".to_string()))
+            } else {
+                Ok(true)
+            }
+        }
+
         async fn delete_notification_user(
             &self,
             _notification_id: i32,
-            _user_email: String,
+            _user_id: i32,
         ) -> Result<bool, AppError> {
             if self.should_fail_transaction.lock().unwrap().clone() {
                 Err(AppError::DatabaseError("Mock error".to_string()))
@@ -237,7 +249,7 @@ mod tests {
             target_type: NotificationTargetType::AllUsers,
         };
 
-        let adt_detail = Some("test_detail".to_string());
+        let adt_detail = Some(1);
 
         observer.update(&CreateNotificationRequest {
             title: notification.title.clone(),
@@ -311,7 +323,7 @@ mod tests {
             target_type: NotificationTargetType::AllUsers,
         };
 
-        let adt_detail = Some("test_detail".to_string());
+        let adt_detail = Some(1);
 
         let result = service.update(&CreateNotificationRequest {
             title: notification.title.clone(),

@@ -9,12 +9,12 @@ use chrono::Utc;
 pub trait NotificationRepository: Send + Sync {
     async fn begin_transaction(&self) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, AppError>;
     async fn create_notification(&self, notification: &CreateNotificationRequest, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<Notification, AppError>;
-    async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<String>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError>;
+    async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<i32>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError>;
     async fn get_all_notifications(&self) -> Result<Vec<Notification>, AppError>;
-    async fn get_notification_for_user(&self, user_email: String) -> Result<Vec<Notification>, AppError>;
+    async fn get_notification_for_user(&self, user_id: i32) -> Result<Vec<Notification>, AppError>;
     async fn get_notification_by_id(&self, notification_id: i32) -> Result<Option<Notification>, AppError>;
+    async fn delete_notification_user(&self, notification_id: i32, user_id: i32) -> Result<bool, AppError>;
     async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError>;
-    async fn delete_notification_user(&self, notification_id: i32, user_email: String) -> Result<bool, AppError>;
 }
 
 pub struct DbNotificationRepository {
@@ -67,27 +67,27 @@ impl NotificationRepository for DbNotificationRepository {
         })
     }
 
-    async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<String>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError> {
+    async fn push_notification(&self, target: NotificationTargetType, adt_details: Option<i32>, notification_id: i32, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<bool, AppError> {
+        // Check if the notification exists
+        let exists = sqlx::query!(
+            "SELECT COUNT(*) as count FROM notification WHERE id = $1",
+            notification_id
+        )
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        if exists.count.unwrap_or(0) == 0 {
+            return Err(AppError::ValidationError("Notification does not exist".to_string()));
+        }
+
         match target {
             NotificationTargetType::AllUsers => {
-                // Check if notification exists before marking as successful
-                let exists = sqlx::query!(
-                    "SELECT COUNT(*) as count FROM notification WHERE id = $1",
-                    notification_id
-                )
-                .fetch_one(&mut **tx)
-                .await
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-                if exists.count.unwrap_or(0) > 0 {
-                    Ok(true)
-                } else {
-                    Err(AppError::ValidationError("Notification does not exist".to_string()))
-                }
+                Ok(true) // No action needed for all users
             }
             NotificationTargetType::SpecificUser => {
                 let _result = sqlx::query!(
-                    "INSERT INTO notification_user (user_email, announcement_id)
+                    "INSERT INTO notification_user (user_id, notification_id)
                     VALUES ($1, $2)",
                     adt_details.ok_or_else(|| AppError::ValidationError("User email is required for this target".to_string()))?,
                     notification_id
@@ -99,25 +99,35 @@ impl NotificationRepository for DbNotificationRepository {
                 Ok(true)
             }
             NotificationTargetType::Fundraisers => {
-                // let _result = sqlx::query!(
-                //     "INSERT INTO notification_user (user_email, announcement_id)
-                //     SELECT user_email, $1 FROM campaigns WHERE start_at <= NOW()",
-                //     notification_id
-                // )
-                // .execute(&mut **tx)
-                // .await
-                // .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                let _result = sqlx::query!(
+                    "INSERT INTO notification_user (user_id, notification_id)
+                    SELECT user_id, $1 FROM campaigns WHERE id = $2",
+                    notification_id,
+                    adt_details.ok_or_else(|| AppError::ValidationError("Campaign ID is required for this target".to_string()))?,
+                )
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
                 Ok(true)
             }
             NotificationTargetType::Donors => {
-                // implement later after database ready
+                let _result = sqlx::query!(
+                    "INSERT INTO notification_user (user_id, notification_id)
+                    SELECT user_id, $1 FROM donations WHERE campaign_id = $2",
+                    notification_id,
+                    adt_details.ok_or_else(|| AppError::ValidationError("Donor ID is required for this target".to_string()))?,
+                )
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
                 Ok(true)
             }
             NotificationTargetType::NewCampaign => {
                 let _result = sqlx::query!(
-                    "INSERT INTO notification_user (user_email, announcement_id)
-                    SELECT user_email, $1 FROM announcement_subscription",
+                    "INSERT INTO notification_user (user_id, notification_id)
+                    SELECT user_id, $1 FROM announcement_subscription",
                     notification_id
                 )
                 .execute(&mut **tx)
@@ -154,7 +164,7 @@ impl NotificationRepository for DbNotificationRepository {
         Ok(notifications)
     }
 
-    async fn get_notification_for_user(&self, user_email: String) -> Result<Vec<Notification>, AppError> {
+    async fn get_notification_for_user(&self, user_id: i32) -> Result<Vec<Notification>, AppError> {
         let mut conn = self
             .pool
             .acquire()
@@ -164,11 +174,11 @@ impl NotificationRepository for DbNotificationRepository {
         let notifications = sqlx::query!(
             "SELECT * FROM notification
                 WHERE target_type = $1 OR notification.id IN (
-                    SELECT announcement_id
+                    SELECT notification_id
                     FROM notification_user 
-                    WHERE user_email = $2)",
+                    WHERE user_id = $2)",
             NotificationTargetType::AllUsers.to_string(),
-            user_email
+            user_id
         )
         .fetch_all(&mut *conn)
         .await
@@ -230,7 +240,7 @@ impl NotificationRepository for DbNotificationRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn delete_notification_user(&self, notification_id: i32, user_email: String) -> Result<bool, AppError> {
+    async fn delete_notification_user(&self, notification_id: i32, user_id: i32) -> Result<bool, AppError> {
         let mut conn = self
             .pool
             .acquire()
@@ -238,9 +248,9 @@ impl NotificationRepository for DbNotificationRepository {
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         let result = sqlx::query!(
-            "DELETE FROM notification_user WHERE announcement_id = $1 AND user_email = $2",
+            "DELETE FROM notification_user WHERE notification_id = $1 AND user_id = $2",
             notification_id,
-            user_email
+            user_id
         )
         .execute(&mut *conn)
         .await
@@ -290,15 +300,15 @@ mod tests {
                         ))
                 )"#,
                 r#"CREATE TABLE announcement_subscription (
-                    user_email VARCHAR(255) NOT NULL PRIMARY KEY,
+                    user_id VARCHAR(255) NOT NULL PRIMARY KEY,
                     start_at timestamp NOT NULL DEFAULT NOW()
                 )"#,
                 r#"CREATE TABLE notification_user (
-                    user_email VARCHAR(255) NOT NULL,
-                    announcement_id INT NOT NULL,
+                    user_id VARCHAR(255) NOT NULL,
+                    notification_id INT NOT NULL,
                     created_at timestamp NOT NULL DEFAULT NOW(),
-                    PRIMARY KEY (user_email, announcement_id),
-                    FOREIGN KEY (announcement_id) REFERENCES notification(id) ON DELETE CASCADE
+                    PRIMARY KEY (user_id, notification_id),
+                    FOREIGN KEY (notification_id) REFERENCES notification(id) ON DELETE CASCADE
                 )"#,
             ];
 
@@ -398,7 +408,7 @@ mod tests {
             title: "Notification 2".to_string(),
             content: "Content 2".to_string(),
             target_type: NotificationTargetType::Fundraisers,
-            adt_detail: Some("1".to_string()),
+            adt_detail: Some(123),
         };
 
         let mut tx1 = repo.pool.begin().await.expect("Failed to begin transaction");
@@ -439,7 +449,7 @@ mod tests {
             title: "To Be Deleted".to_string(),
             content: "Delete me".to_string(),
             target_type: NotificationTargetType::SpecificUser,
-            adt_detail: Some("greg@gmail.com".to_string()),
+            adt_detail: Some(1),
         };
 
         let mut tx = repo.pool.begin().await.expect("Failed to begin transaction");
@@ -489,7 +499,7 @@ mod tests {
 
         // Ensure the notification_user entry is also deleted
         let user_notifications = repo
-            .get_notification_for_user("greg@gmail.com".to_string())
+            .get_notification_for_user(1)
             .await
             .expect("Failed to get user notifications");
         assert!(
@@ -543,8 +553,8 @@ mod tests {
 
         // Create subscription for user gregory@gmail.com
         sqlx::query!(
-            "INSERT INTO announcement_subscription (user_email) VALUES ($1)",
-            "gregory@gmail.com".to_string(),
+            "INSERT INTO announcement_subscription (user_id) VALUES ($1)",
+            1
         )
         .execute(&repo.pool)
         .await
@@ -582,7 +592,7 @@ mod tests {
 
         // Check if the notification was pushed to the user
         let user_notifications = repo
-            .get_notification_for_user("gregory@gmail.com".to_string())
+            .get_notification_for_user(1)
             .await
             .expect("Failed to get user notifications");
 
@@ -620,7 +630,7 @@ mod tests {
             title: "To Be Deleted User".to_string(),
             content: "Delete me for user".to_string(),
             target_type: NotificationTargetType::SpecificUser,
-            adt_detail: Some("greg@gmail.com".to_string()),
+            adt_detail: Some(1),
         };
 
         let mut tx = repo.pool.begin().await.expect("Failed to begin transaction");
@@ -647,7 +657,7 @@ mod tests {
                 .is_some()
         );
         assert!(
-            repo.get_notification_for_user("greg@gmail.com".to_string())
+            repo.get_notification_for_user(1)
                 .await
                 .unwrap()
                 .iter()
@@ -655,12 +665,12 @@ mod tests {
         );
         
         let delete_result = repo
-            .delete_notification_user(notification_id, "greg@gmail.com".to_string())
+            .delete_notification_user(notification_id, 1)
             .await
             .expect("Failed to delete notification for user");
         assert!(delete_result, "Failed to delete notification for user");
         assert!(
-            repo.get_notification_for_user("greg@gmail.com".to_string())
+            repo.get_notification_for_user(1)
                 .await
                 .unwrap()
                 .iter()

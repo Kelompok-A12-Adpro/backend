@@ -1,7 +1,11 @@
+use rocket::State;
+
 use crate::errors::AppError;
+use crate::model::admin::notification::CreateNotificationRequest;
 use crate::model::donation::donation::{Donation, NewDonationRequest};
 use crate::repository::campaign::campaign_repository::CampaignRepository;
 use crate::repository::donation::donation_repository::DonationRepository;
+use crate::service::admin::notification::notification_service::NotificationService;
 use crate::service::commands::donation_commands::{
     DeleteDonationMessageCommand, MakeDonationCommand,
 };
@@ -28,7 +32,7 @@ impl DonationService {
         }
     }
 
-    pub async fn make_donation(&self, cmd: MakeDonationCommand) -> Result<Donation, AppError> {
+    pub async fn make_donation(&self, cmd: MakeDonationCommand, notification_service: &State<Arc<NotificationService>>) -> Result<Donation, AppError> {
         if cmd.amount <= 0 {
             return Err(AppError::ValidationError(
                 "Donation amount must be positive".to_string(),
@@ -41,6 +45,8 @@ impl DonationService {
             .get_campaign(cmd.campaign_id)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Campaign {} not found", cmd.campaign_id)))?;
+
+        let campaign_name = initial_campaign.name.clone();
 
         // 2. Check if the campaign is active
         if initial_campaign.status != CampaignStatus::Active {
@@ -100,6 +106,31 @@ impl DonationService {
             {
                 Ok(true) => {
                     println!("Campaign {} successfully marked as Completed.", updated_campaign.id);
+                    let notification_service_clone = Arc::clone(notification_service);
+
+                    tokio::spawn(async move {
+                        // Create notification for fundraiser
+                        if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                            title: "Campaign Completed".to_string(),
+                            content: format!("Your campaign '{}' has reached its target and automatically completed!", 
+                                updated_campaign.name),
+                            target_type: crate::model::admin::notification::NotificationTargetType::Fundraisers,
+                            adt_detail: Some(updated_campaign.id),
+                        }).await {
+                            eprintln!("Failed to send notification: {:?}", e);
+                        }
+
+                        // Create notification for donors
+                        if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                            title: "Campaign Target Reached".to_string(),
+                            content: format!("The campaign '{}' you donated before has reached its target amount of {}. Thank you for your support!", 
+                                updated_campaign.name, updated_campaign.target_amount),
+                            target_type: crate::model::admin::notification::NotificationTargetType::Donors,
+                            adt_detail: None,
+                        }).await {
+                            eprintln!("Failed to send notification: {:?}", e);
+                        }
+                    });
                 }
                 Ok(false) => {
                      // This means 0 rows were affected, campaign might not exist or status was already Completed
@@ -118,6 +149,21 @@ impl DonationService {
                 }
             }
         }
+        
+        let notification_service_clone = Arc::clone(notification_service);
+        // Create notification for fundraiser
+        tokio::spawn(async move {
+            if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                title: "New Donation Received".to_string(),
+                content: format!("A new donation of {} has been made to your campaign '{}'.", 
+                    req.amount, campaign_name),
+                target_type: crate::model::admin::notification::NotificationTargetType::Fundraisers,
+                adt_detail: Some(initial_campaign.id),
+            }).await {
+                eprintln!("Failed to send notification: {:?}", e);
+            }
+        });
+
         Ok(donation)
     }
 

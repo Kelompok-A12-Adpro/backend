@@ -24,21 +24,21 @@ impl NotificationService {
         }
     }
 
-    pub async fn subscribe(&self, user_email: String) -> Result<(), AppError> {
-        if user_email.trim().is_empty() {
-            return Err(AppError::ValidationError("User email cannot be empty".to_string()));
+    pub async fn subscribe(&self, user_id: i32) -> Result<(), AppError> {
+        if user_id <= 0 {
+            return Err(AppError::ValidationError("Invalid user ID".to_string()));
         }
 
-        self.subscriber_repo.subscribe(user_email).await
+        self.subscriber_repo.subscribe(user_id).await
             .map_err(|e| AppError::DatabaseError(format!("Failed to subscribe user: {}", e)))
     }
 
-    pub async fn unsubscribe(&self, user_email: String) -> Result<(), AppError> {
-        if user_email.trim().is_empty() {
-            return Err(AppError::ValidationError("User email cannot be empty".to_string()));
+    pub async fn unsubscribe(&self, user_id: i32) -> Result<(), AppError> {
+        if user_id <= 0 {
+            return Err(AppError::ValidationError("Invalid user ID".to_string()));
         }
 
-        self.subscriber_repo.unsubscribe(user_email).await
+        self.subscriber_repo.unsubscribe(user_id).await
             .map_err(|e| AppError::DatabaseError(format!("Failed to unsubscribe user: {}", e)))
     }
 
@@ -59,12 +59,12 @@ impl NotificationService {
         self.notification_repo.get_notification_by_id(notification_id).await
     }
 
-    pub async fn get_notifications_for_user(&self, user_email: String) -> Result<Vec<Notification>, AppError> {
-        if user_email.trim().is_empty() {
-            return Err(AppError::ValidationError("User email cannot be empty".to_string()));
+    pub async fn get_notifications_for_user(&self, user_id: i32) -> Result<Vec<Notification>, AppError> {
+        if user_id <= 0 {
+            return Err(AppError::ValidationError("Invalid user ID".to_string()));
         }
         
-        self.notification_repo.get_notification_for_user(user_email).await
+        self.notification_repo.get_notification_for_user(user_id).await
     }
 
     pub async fn delete_notification(&self, notification_id: i32) -> Result<bool, AppError> {
@@ -80,8 +80,8 @@ impl NotificationService {
             return Err(AppError::ValidationError("Invalid notification ID".to_string()));
         }
         
-        if user_email.trim().is_empty() {
-            return Err(AppError::ValidationError("User email cannot be empty".to_string()));
+        if user_id <= 0 {
+            return Err(AppError::ValidationError("Invalid user ID".to_string()));
         }
 
         self.notification_repo.delete_notification_user(notification_id, user_email).await
@@ -172,7 +172,7 @@ mod tests {
     // Mock Subscription Repository
     struct MockNewCampaignSubscriptionRepository {
         should_fail: Arc<Mutex<bool>>,
-        subscribers: Arc<Mutex<Vec<String>>>,
+        subscribers: Arc<Mutex<Vec<i32>>>,
     }
 
     impl MockNewCampaignSubscriptionRepository {
@@ -194,19 +194,19 @@ mod tests {
 
     #[async_trait]
     impl NewCampaignSubscriptionRepository for MockNewCampaignSubscriptionRepository {
-        async fn subscribe(&self, user_email: String) -> Result<(), AppError> {
+        async fn subscribe(&self, user_id: i32) -> Result<(), AppError> {
             if *self.should_fail.lock().unwrap() {
                 return Err(AppError::DatabaseError("Subscribe failed".to_string()));
             }
-            self.subscribers.lock().unwrap().push(user_email);
+            self.subscribers.lock().unwrap().push(user_id);
             Ok(())
         }
 
-        async fn unsubscribe(&self, user_email: String) -> Result<(), AppError> {
+        async fn unsubscribe(&self, user_id: i32) -> Result<(), AppError> {
             if *self.should_fail.lock().unwrap() {
                 return Err(AppError::DatabaseError("Unsubscribe failed".to_string()));
             }
-            self.subscribers.lock().unwrap().retain(|email| email != &user_email);
+            self.subscribers.lock().unwrap().retain(|email| email != &user_id);
             Ok(())
         }
 
@@ -255,7 +255,7 @@ mod tests {
         async fn push_notification(
             &self,
             _target: NotificationTargetType,
-            _adt_details: Option<String>,
+            _adt_details: Option<i32>,
             _notification_id: i32,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         ) -> Result<bool, AppError> {
@@ -269,7 +269,7 @@ mod tests {
             Ok(self.notifications.lock().unwrap().clone())
         }
 
-        async fn get_notification_for_user(&self, _user_email: String) -> Result<Vec<Notification>, AppError> {
+        async fn get_notification_for_user(&self, _user_id: i32) -> Result<Vec<Notification>, AppError> {
             if *self.should_fail.lock().unwrap() {
                 return Err(AppError::DatabaseError("Get for user failed".to_string()));
             }
@@ -294,7 +294,14 @@ mod tests {
             Ok(notifications.len() < initial_len)
         }
 
-        async fn delete_notification_user(&self, _notification_id: i32, _user_email: String) -> Result<bool, AppError> {
+        async fn mark_notification_as_read(&self, _notification_id: i32, _user_id: i32) -> Result<bool, AppError> {
+            if *self.should_fail.lock().unwrap() {
+                return Err(AppError::DatabaseError("Mark as read failed".to_string()));
+            }
+            Ok(true)
+        }
+
+        async fn delete_notification_user(&self, _notification_id: i32, _user_id: i32) -> Result<bool, AppError> {
             if *self.should_fail.lock().unwrap() {
                 return Err(AppError::DatabaseError("Delete user failed".to_string()));
             }
@@ -321,7 +328,7 @@ mod tests {
         let observer = Arc::new(MockObserver::new("test_observer"));
         let service = NotificationService::new(repo, subscriber_repo.clone(), observer);
         
-        let result = service.subscribe("user@test.com".to_string()).await;
+        let result = service.subscribe(1).await;
         assert!(result.is_ok());
         assert_eq!(subscriber_repo.get_subscribers_count(), 1);
     }
@@ -333,7 +340,7 @@ mod tests {
         let observer = Arc::new(MockObserver::new("test_observer"));
         let service = NotificationService::new(repo, subscriber_repo, observer);
         
-        let result = service.subscribe("".to_string()).await;
+        let result = service.subscribe(0).await;
         assert!(result.is_err());
         
         match result.err().unwrap() {
@@ -352,7 +359,7 @@ mod tests {
         let observer = Arc::new(MockObserver::new("test_observer"));
         let service = NotificationService::new(repo, subscriber_repo, observer);
         
-        let result = service.subscribe("user@test.com".to_string()).await;
+        let result = service.subscribe(1).await;
         assert!(result.is_err());
         
         match result.err().unwrap() {
@@ -371,11 +378,11 @@ mod tests {
         let service = NotificationService::new(repo, subscriber_repo.clone(), observer);
         
         // First subscribe
-        service.subscribe("user@test.com".to_string()).await.unwrap();
+        service.subscribe(1).await.unwrap();
         assert_eq!(subscriber_repo.get_subscribers_count(), 1);
         
         // Then unsubscribe
-        let result = service.unsubscribe("user@test.com".to_string()).await;
+        let result = service.unsubscribe(1).await;
         assert!(result.is_ok());
         assert_eq!(subscriber_repo.get_subscribers_count(), 0);
     }
@@ -387,7 +394,7 @@ mod tests {
         let observer = Arc::new(MockObserver::new("test_observer"));
         let service = NotificationService::new(repo, subscriber_repo, observer);
         
-        let result = service.unsubscribe("".to_string()).await;
+        let result = service.unsubscribe(1).await;
         assert!(result.is_err());
         
         match result.err().unwrap() {
@@ -541,7 +548,7 @@ mod tests {
         
         repo.add_notification(notification);
         
-        let notifications = service.get_notifications_for_user("user@test.com".to_string()).await.unwrap();
+        let notifications = service.get_notifications_for_user(1).await.unwrap();
         assert_eq!(notifications.len(), 1);
     }
 
@@ -552,7 +559,7 @@ mod tests {
         let observer = Arc::new(MockObserver::new("test_observer"));
         let service = NotificationService::new(repo, subscriber_repo, observer);
         
-        let result = service.get_notifications_for_user("".to_string()).await;
+        let result = service.get_notifications_for_user(1).await;
         assert!(result.is_err());
         
         match result.err().unwrap() {
@@ -612,7 +619,7 @@ mod tests {
         let observer = Arc::new(MockObserver::new("test_observer"));
         let service = NotificationService::new(repo, subscriber_repo, observer);
         
-        let result = service.delete_notification_for_user(1, "user@test.com".to_string()).await.unwrap();
+        let result = service.delete_notification_for_user(1, 1).await.unwrap();
         assert!(result);
     }
 
@@ -623,10 +630,10 @@ mod tests {
         let observer = Arc::new(MockObserver::new("test_observer"));
         let service = NotificationService::new(repo, subscriber_repo, observer);
         
-        let result = service.delete_notification_for_user(0, "user@test.com".to_string()).await;
+        let result = service.delete_notification_for_user(0, 1).await;
         assert!(result.is_err());
         
-        let result = service.delete_notification_for_user(1, "".to_string()).await;
+        let result = service.delete_notification_for_user(1, 1).await;
         assert!(result.is_err());
         
         match result.err().unwrap() {

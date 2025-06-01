@@ -47,9 +47,9 @@ pub struct CreateNotificationRequest {
     pub title: String,
     pub content: String,
     pub target_type: NotificationTargetType,
-    // Specific User & New Campaign: User Email
+    // Specific User & New Campaign: User Id
     // Fundraisers & Donors: Campaign ID
-    pub adt_detail: Option<String>,
+    pub adt_detail: Option<i32>,
 }
 
 pub fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
@@ -64,18 +64,14 @@ pub fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
     if (req.target_type != NotificationTargetType::AllUsers &&
         req.target_type != NotificationTargetType::NewCampaign
     ) && req.adt_detail.is_none() {
-        return Err("Add detail must be provided for this target type".to_string());
+        return Err("Additional detail must be provided for this target type".to_string());
     }
 
     if req.target_type == NotificationTargetType::SpecificUser
-        && req.adt_detail.as_ref().map_or(false, |detail| {
-            let email_regex =
-                regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
-            !email_regex.is_match(detail)
-        })
+        && req.adt_detail.as_ref().map_or(true, |detail| *detail <= 0)
     {
         return Err(
-            "Add detail must be a valid email for SpecificUser target type"
+            "Additional detail must be a valid User ID for SpecificUser target type"
                 .to_string(),
         );
     }
@@ -83,10 +79,10 @@ pub fn validate_request(req: &CreateNotificationRequest) -> Result<(), String> {
     if (req.target_type == NotificationTargetType::Fundraisers
         || req.target_type == NotificationTargetType::Donors)
         && req.adt_detail.as_ref().map_or(false, |detail| {
-            detail.parse::<i32>().is_err()
+            detail <= &0 || !detail.to_string().chars().all(char::is_numeric)
         })
     {
-        return Err("Add detail must be a valid Campaign ID for Fundraisers or Donors target type"
+        return Err("Additional detail must be a valid Campaign ID for Fundraisers or Donors target type"
             .to_string());
     }
 
@@ -146,14 +142,14 @@ mod tests {
             title: "Specific User Title".to_string(),
             content: "Specific User Content".to_string(),
             target_type: NotificationTargetType::SpecificUser,
-            adt_detail: Some("user@example.com".to_string()),
+            adt_detail: Some(1),
         };
         assert_eq!(req_specific.title, "Specific User Title");
         assert_eq!(
             req_specific.target_type,
             NotificationTargetType::SpecificUser
         );
-        assert_eq!(req_specific.adt_detail, Some("user@example.com".to_string()));
+        assert_eq!(req_specific.adt_detail, Some(1));
     }
 
     #[test]
@@ -179,7 +175,7 @@ mod tests {
             title: "Test with Detail".to_string(),
             content: "Testing with adt_detail".to_string(),
             target_type: NotificationTargetType::SpecificUser,
-            adt_detail: Some("test@example.com".to_string()),
+            adt_detail: Some(1),
         };
 
         let serialized_with_detail = serde_json::to_string(&req_with_detail).expect("Serialization failed");
@@ -217,12 +213,12 @@ mod tests {
         };
         assert!(validate_request(&invalid_empty_content).is_err());
 
-        // Valid: SpecificUser with valid email
+        // Valid: SpecificUser with valid id
         let valid_specific_user = CreateNotificationRequest {
             title: "Valid Title".to_string(),
             content: "Valid Content".to_string(),
             target_type: NotificationTargetType::SpecificUser,
-            adt_detail: Some("user@example.com".to_string()),
+            adt_detail: Some(1), // Assuming 1 is a valid user ID
         };
         assert!(validate_request(&valid_specific_user).is_ok());
 
@@ -235,21 +231,21 @@ mod tests {
         };
         assert!(validate_request(&invalid_specific_user_no_detail).is_err());
 
-        // Invalid: SpecificUser with invalid email
-        let invalid_specific_user_bad_email = CreateNotificationRequest {
+        // Invalid: SpecificUser with invalid id
+        let invalid_specific_user_bad_id = CreateNotificationRequest {
             title: "Valid Title".to_string(),
             content: "Valid Content".to_string(),
             target_type: NotificationTargetType::SpecificUser,
-            adt_detail: Some("invalid-email".to_string()),
+            adt_detail: Some(-1),
         };
-        assert!(validate_request(&invalid_specific_user_bad_email).is_err());
+        assert!(validate_request(&invalid_specific_user_bad_id).is_err());
 
         // Valid: Fundraisers with valid campaign ID
         let valid_fundraisers = CreateNotificationRequest {
             title: "Valid Title".to_string(),
             content: "Valid Content".to_string(),
             target_type: NotificationTargetType::Fundraisers,
-            adt_detail: Some("123".to_string()),
+            adt_detail: Some(123),
         };
         assert!(validate_request(&valid_fundraisers).is_ok());
 
@@ -258,7 +254,7 @@ mod tests {
             title: "Valid Title".to_string(),
             content: "Valid Content".to_string(),
             target_type: NotificationTargetType::Fundraisers,
-            adt_detail: Some("not-a-number".to_string()),
+            adt_detail: Some(-123), // Assuming negative ID is invalid
         };
         assert!(validate_request(&invalid_fundraisers_bad_id).is_err());
 
@@ -267,11 +263,11 @@ mod tests {
             title: "Valid Title".to_string(),
             content: "Valid Content".to_string(),
             target_type: NotificationTargetType::Donors,
-            adt_detail: Some("456".to_string()),
+            adt_detail: Some(456),
         };
         assert!(validate_request(&valid_donors).is_ok());
 
-        // Valid: NewCampaign with valid email
+        // Valid: NewCampaign
         let valid_new_campaign = CreateNotificationRequest {
             title: "Valid Title".to_string(),
             content: "Valid Content".to_string(),

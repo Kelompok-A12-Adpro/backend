@@ -178,7 +178,7 @@ impl CampaignService {
                 title: "Campaign Accepted".to_string(),
                 content: format!("Your campaign '{}' has been approved and is now active!", campaign_name),
                 target_type: crate::model::admin::notification::NotificationTargetType::Fundraisers,
-                adt_detail: Some(id.clone().to_string()),
+                adt_detail: Some(id.clone()),
             }).await {
                 eprintln!("Failed to send notification: {:?}", e);
             }
@@ -209,7 +209,7 @@ impl CampaignService {
                 content: format!("Your campaign '{}' has been rejected. Reason: {}", 
                     campaign_name, reject_reason.unwrap_or("No reason provided".to_string())),
                 target_type: crate::model::admin::notification::NotificationTargetType::Fundraisers,
-                adt_detail: Some(id.clone().to_string()),
+                adt_detail: Some(id.clone()),
             }).await {
                 eprintln!("Failed to send notification: {:?}", e);
             }
@@ -218,12 +218,39 @@ impl CampaignService {
         Ok(updated)
     }
 
-    pub async fn complete_campaign(&self, id: i32) -> Result<Campaign, AppError> {
+    pub async fn complete_campaign(&self, id: i32, notification_service: &State<Arc<NotificationService>>) -> Result<Campaign, AppError> {
         let mut campaign = self.fetch_or_404(id).await?;
         let state = Self::state_from_status(campaign.status.clone());
         state.complete(&mut campaign)?;
 
         let updated = self.repository.update_campaign(campaign).await?;
+
+        let notification_service_clone = Arc::clone(notification_service);
+        let campaign_name = updated.name.clone();
+        let campaign_name2 = updated.name.clone();
+        tokio::spawn(async move {
+            // Create notification for fundraiser
+            if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                title: "Campaign Completed".to_string(),
+                content: format!("Your campaign '{}' has been completed successfully!", campaign_name),
+                target_type: crate::model::admin::notification::NotificationTargetType::Fundraisers,
+                adt_detail: Some(updated.id),
+            }).await {
+                eprintln!("Failed to send notification: {:?}", e);
+            }
+
+            // Create notification for donors
+            if let Err(e) = notification_service_clone.notify(CreateNotificationRequest {
+                title: "Campaign Target Reached".to_string(),
+                content: format!("The campaign '{}' you donated before has reached its target amount of {}. Thank you for your support!", 
+                    campaign_name2, updated.target_amount),
+                target_type: crate::model::admin::notification::NotificationTargetType::Donors,
+                adt_detail: None,
+            }).await {
+                eprintln!("Failed to send notification: {:?}", e);
+            }
+        });
+
         Ok(updated)
     }
     
