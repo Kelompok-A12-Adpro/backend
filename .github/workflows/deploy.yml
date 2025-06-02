@@ -155,55 +155,46 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
           fail_ci_if_error: true
-  
-  deploy:
-    needs: [sonarcloud-linter, scorecard-analysis, codecov]
+
+  push-cr:
+    name: Push to GitHub CR
+    needs: [sonarcloud-linter, codecov, scorecard-analysis]
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-        aws-region: us-east-1
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: hyvos07
+          password: ${{ secrets.PUSH_TOKEN }}
 
-    - name: Build and push Docker image
-      run: |
-        docker build \
+      - name: Build and push Docker image
+        run: |
+          docker build \
           --build-arg DATABASE_URL=${{ secrets.DATABASE_URL }} \
-          -t gatherlove-be .
-        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
-        docker tag gatherlove-be:latest ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
-        docker push ${{ secrets.ECR_REGISTRY }}/gatherlove-be:latest
-
-    - name: Deploy to ECS
-      env:
-        ECS_CLUSTER: GatherLove
-        ECS_SERVICE: gatherlove-be
-      run: |
-        aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
-        aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
-        echo "Deployment to ECS completed successfully."
-    
-    - name: Get Public IP Address and Set to DuckDNS
-      env:
-          ECS_CLUSTER: GatherLove
-          ECS_SERVICE: gatherlove-be
-      run: |
-        TASK_ARN=$(aws ecs list-tasks --cluster ${{ env.ECS_CLUSTER }} --service-name ${{ env.ECS_SERVICE }} --query 'taskArns[0]' --output text)
-        TASK_DETAILS=$(aws ecs describe-tasks --cluster ${{ env.ECS_CLUSTER }} --tasks $TASK_ARN)
-        ENI=$(echo $TASK_DETAILS | jq -r '.tasks[0].attachments[0].details[] | select(.name=="networkInterfaceId").value')
-
-        PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
-        
-        DUCKDNS_TOKEN=${{ secrets.DUCKDNS_TOKEN }}
-        DUCKDNS_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=gatherlove-be&token=$DUCKDNS_TOKEN&ip=$PUBLIC_IP&verbose=true")
-
-        echo "## DuckDNS Update Results" >> $GITHUB_STEP_SUMMARY
-        echo "* Public IP: $PUBLIC_IP" >> $GITHUB_STEP_SUMMARY
-        echo "* Response: $DUCKDNS_RESPONSE" >> $GITHUB_STEP_SUMMARY
+          -t ghcr.io/kelompok-a12-adpro/backend:latest .
+          docker push ghcr.io/kelompok-a12-adpro/backend:latest
+          echo "Docker image pushed to GitHub CR successfully."
+  
+  deploy-koyeb:
+    name: Redeploy on Koyeb
+    needs: [push-cr]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install and configure the Koyeb CLI
+        uses: koyeb-community/koyeb-actions@v2
+        with:
+          api_token: "${{ secrets.KOYEB_API_TOKEN }}"
+      
+      - name: Redeploy service on Koyeb
+        run: |
+          koyeb service redeploy gatherlove-be/gatherlove-be
+          echo "Koyeb service redeployment initiated successfully."
